@@ -1,0 +1,54 @@
+services:
+  bot:
+    build: .
+    container_name: telegram-nutrition-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - nutrition-network
+
+  postgres:
+    image: postgres:17
+    container_name: nutrition-postgres
+    environment:
+      POSTGRES_DB: nutrition_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123456
+#    ports:
+#      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - nutrition-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: nutrition-redis
+#    ports:
+#      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - nutrition-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  nutrition-network:
+    driver: bridge

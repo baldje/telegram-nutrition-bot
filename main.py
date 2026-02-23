@@ -1,0 +1,113 @@
+# app/main.py
+from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from app.utils.config import config
+from app.database import init_redis, redis_client, close_redis, async_engine, Base, AsyncSessionLocal
+import logging
+import asyncio
+import time
+
+# ИМПОРТИРУЕМ ВСЕ РОУТЕРЫ
+from app.handlers import (
+    start_router,
+    onboarding_router,
+    photo_router,
+    payments_router,
+    main_router,
+    legal_router,      # Юридический роутер
+    referral_router     # Реферальный роутер
+)
+
+# ИМПОРТИРУЕМ MIDDLEWARE
+from app.utils.middlewares import SubscriptionMiddleware, LegalMiddleware
+from app.utils.db_middleware import DatabaseMiddleware
+
+# Инициализируем логирование
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+async def main():
+    try:
+        logger.info("🚀 Запуск бота...")
+        time.sleep(5)
+
+        # Инициализация Redis
+        await init_redis()
+        logger.info("✅ Redis подключен успешно")
+
+        # Создание таблиц БД
+        logger.info("🔄 Создание таблиц БД...")
+        async with async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("✅ Таблицы БД созданы/проверены")
+
+        # Создаем storage
+        storage = RedisStorage(redis=redis_client)
+
+        # Создаем бота и диспатчер
+        bot = Bot(
+            token=config.bot.token,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+        )
+        dp = Dispatcher(storage=storage)
+
+        # ✅ ДОБАВЛЯЕМ MIDDLEWARE В ПРАВИЛЬНОМ ПОРЯДКЕ
+        # 1. Сначала middleware для БД (на все типы обновлений)
+        dp.update.middleware(DatabaseMiddleware(AsyncSessionLocal))
+        logger.info("  ✅ DatabaseMiddleware зарегистрирован")
+
+        # 2. Потом middleware для проверки согласия (на сообщения и колбэки)
+        dp.message.middleware(LegalMiddleware())
+        dp.callback_query.middleware(LegalMiddleware())
+        logger.info("  ✅ LegalMiddleware зарегистрирован")
+
+        # 3. Потом middleware для подписок (на сообщения и колбэки)
+        dp.message.middleware(SubscriptionMiddleware())
+        dp.callback_query.middleware(SubscriptionMiddleware())
+        logger.info("  ✅ SubscriptionMiddleware зарегистрирован")
+
+        # ✅ РЕГИСТРАЦИЯ РОУТЕРОВ В ПРАВИЛЬНОМ ПОРЯДКЕ
+        logger.info("🔄 Регистрация роутеров...")
+
+        # Порядок важен: сначала самые специфичные, потом общие
+        routers = [
+            ("legal", legal_router),        # /privacy, /offer - самые базовые
+            ("start", start_router),         # /start
+            ("referral", referral_router),   # /referral, /my_discount
+            ("payments", payments_router),   # /premium, /subscribe - специфичные команды
+            ("onboarding", onboarding_router), # онбординг
+            ("photo", photo_router),          # анализ фото
+            ("main", main_router)             # общий роутер (должен быть последним)
+        ]
+
+        for name, router in routers:
+            dp.include_router(router)
+            logger.info(f"  ➕ {name}")
+
+        logger.info("✅ Все роутеры зарегистрированы")
+        logger.info(f"📋 Список роутеров: {', '.join([name for name, _ in routers])}")
+
+        # Проверяем подключение
+        me = await bot.get_me()
+        logger.info(f"✅ Бот подключен: @{me.username} (ID: {me.id})")
+        logger.info("🎯 Бот запущен и готов к работе!")
+
+        # Запускаем бота
+        await dp.start_polling(bot)
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка запуска бота: {e}")
+        raise
+    finally:
+        await close_redis()
+        logger.info("👋 Redis соединение закрыто")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

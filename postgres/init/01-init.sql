@@ -1,0 +1,27 @@
+-- init.sql
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    telegram_id BIGINT UNIQUE NOT NULL,
+    username VARCHAR(255),
+    full_name VARCHAR(255),
+    goal VARCHAR(50),
+    gender VARCHAR(20),
+    age INTEGER,
+    height INTEGER,
+    weight INTEGER,
+    favorite_foods TEXT,
+    excluded_foods TEXT,
+    health_issues TEXT,
+    wants_training BOOLEAN DEFAULT FALSE,
+    subscription_end TIMESTAMP,
+    trial_used BOOLEAN DEFAULT FALSE,
+    trial_start TIMESTAMP,
+    referrer_id INTEGER,
+    referral_code VARCHAR(100) UNIQUE,
+    balance INTEGER DEFAULT 0,
+    medals INTEGER DEFAULT 0,
+    cups INTEGER DEFAULT 0,
+    current_streak INTEGER DEFAULT 0,
+    last_training TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
