@@ -3,6 +3,7 @@ from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
+import logging
 
 from app.services.onboarding import OnboardingService, OnboardingStates
 from app.services.nutrition import NutritionService
@@ -10,40 +11,9 @@ from app.services.training import TrainingService
 # from app.keyboards.main import MainKeyboard
 from datetime import datetime
 
+# ✅ ЭТО САМОЕ ГЛАВНОЕ - создаем роутер
 main_router = Router()
-
-
-@main_router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext, db_session):
-    # Обработка реферальных ссылок
-    if len(message.text.split()) > 1:
-        ref_code = message.text.split()[1]
-        # Обработка рефералов
-
-    user = await db_session.get_user(message.from_user.id)
-
-    if not user:
-        # Новый пользователь
-        await message.answer(
-            "Привет! Я бот Лизы — помогу тебе с питанием, фото-анализом и тренировками. "
-            "3 дня теста бесплатно. Начнём?",
-            reply_markup=MainKeyboard.welcome()
-        )
-    elif user.is_in_trial():
-        # Пользователь в триале
-        await show_trial_day(message, user)
-    elif user.has_active_subscription():
-        # Активная подписка
-        await show_main_menu(message, user)
-    else:
-        # Нужна подписка
-        await show_subscription_offer(message, user)
-
-
-@main_router.message(F.text == "✅ Да, хочу тест")
-async def start_trial(message: Message, state: FSMContext, db_session):
-    onboarding = OnboardingService(db_session)
-    await onboarding.start_onboarding(message, state)
+logger = logging.getLogger(__name__)
 
 
 @main_router.message(F.text == "📷 Фото еды")
@@ -53,7 +23,6 @@ async def request_food_photo(message: Message):
 
 @main_router.message(F.photo)
 async def analyze_food_photo(message: Message):
-    # Здесь можно использовать компьютерное зрение или просто описание
     await message.answer("Анализирую твою еду...")
 
     # В реальности нужно обработать фото, пока просто заглушка
@@ -75,5 +44,5 @@ async def show_trial_day(message: Message, user):
     elif trial_day == 3:
         await message.answer(
             "День 3: Готова неделя питания! Выбери вариант:",
-            reply_markup=MainKeyboard.day3_options()
+            # reply_markup=MainKeyboard.day3_options()  # закомментировано, так как не импортировано
         )

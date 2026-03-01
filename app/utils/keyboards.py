@@ -2,12 +2,18 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 
 def get_goal_keyboard():
     """Клавиатура для выбора цели"""
-    buttons = [
-        [KeyboardButton(text="Похудение")],
-        [KeyboardButton(text="Поддержание веса")],
-        [KeyboardButton(text="Набор массы")]
-    ]
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Похудение")],
+            [KeyboardButton(text="Набор массы")],
+            [KeyboardButton(text="Поддержание")],
+            [KeyboardButton(text="Рельеф")],
+            [KeyboardButton(text="Здоровье")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
 
 def get_gender_keyboard():
     """Клавиатура для выбора пола"""

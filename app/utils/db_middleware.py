@@ -16,6 +16,17 @@ class DatabaseMiddleware(BaseMiddleware):
             event: TelegramObject,
             data: Dict[str, Any]
     ) -> Any:
+        """
+        Передает сессию БД в хендлеры двумя способами:
+        - data['session'] - для прямого использования
+        - data['db'].session - для обратной совместимости
+        """
         async with self.session_factory() as session:
+            # Основной способ - передаем session напрямую
+            data['session'] = session
+
+            # Для обратной совместимости - сохраняем db объект
             data['db'] = type('DB', (), {'session': session})()
+
+            # Вызываем следующий handler
             return await handler(event, data)

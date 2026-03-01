@@ -44,7 +44,7 @@ async def cmd_analyze(message: Message, state: FSMContext):
         "👉 *\"Съел тарелку борща\"*\n"
         "👉 *\"Выпил стакан молока\"*\n"
         "👉 *\"Перекусил яблоком\"*",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
     # Устанавливаем состояние ожидания фото
@@ -79,7 +79,7 @@ async def handle_text_in_waiting_photo(message: Message, state: FSMContext):
             "• *\"Выпил кофе с молоком\"*\n"
             "• *\"Перекусил яблоком\"*\n\n"
             "Если хочешь выйти из режима анализа - напиши /cancel",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
 
 
@@ -102,7 +102,7 @@ async def handle_food_photo(message: Message, state: FSMContext):
         return
 
     # Показываем что начали анализ
-    wait_msg = await message.answer("🔍 **Анализирую фото...**\nЭто займет 10-20 секунд.", parse_mode="Markdown")
+    wait_msg = await message.answer("🔍 **Анализирую фото...**\nЭто займет 10-20 секунд.", parse_mode="HTML")
 
     try:
         # Получаем фото в лучшем качестве
@@ -130,7 +130,7 @@ async def handle_food_photo(message: Message, state: FSMContext):
                 "2. Обеспечь хорошее освещение\n"
                 "3. Убедись, что еда в фокусе\n"
                 "4. Или опиши еду текстом",
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             return
 
@@ -212,7 +212,7 @@ async def handle_food_photo(message: Message, state: FSMContext):
         except Exception as e:
             logger.error(f"Ошибка при обновлении счетчика: {e}")
 
-        await message.answer(response, reply_markup=keyboard, parse_mode="Markdown")
+        await message.answer(response, reply_markup=keyboard, parse_mode="HTML")
 
         # Сбрасываем состояние после успешного анализа
         await state.clear()
@@ -233,7 +233,7 @@ async def handle_food_photo(message: Message, state: FSMContext):
             "2️⃣ Описать еду текстом\n"
             "3️⃣ Начать заново: /start\n\n"
             "Если ошибка повторяется, напишите /support",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
 
 
@@ -271,7 +271,7 @@ async def handle_food_text(message: Message, state: FSMContext):
         return
 
     # Отправляем подтверждение
-    wait_msg = await message.answer("🔍 **Анализирую описание...**", parse_mode="Markdown")
+    wait_msg = await message.answer("🔍 **Анализирую описание...**", parse_mode="HTML")
 
     try:
         analysis = await estimate_calories_from_text(text)
@@ -284,7 +284,7 @@ async def handle_food_text(message: Message, state: FSMContext):
                 "• *\"Съел тарелку борща со сметаной\"*\n"
                 "• *\"Выпил стакан молока 3.2%\"*\n"
                 "• *\"Перекусил яблоком и бананом\"*",
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             return
 
@@ -313,7 +313,7 @@ async def handle_food_text(message: Message, state: FSMContext):
             ]
         ])
 
-        await message.answer(response, reply_markup=keyboard, parse_mode="Markdown")
+        await message.answer(response, reply_markup=keyboard, parse_mode="HTML")
         logger.info(f"✅ Текстовый анализ для пользователя {message.from_user.id}")
 
     except Exception as e:
@@ -341,6 +341,6 @@ async def start_photo_analysis_callback(callback: CallbackQuery, state: FSMConte
     await callback.message.answer(
         "📸 **Отправьте фото еды**\n\n"
         "Сделайте четкое фото вашего блюда и отправьте его в этот чат.",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await callback.answer()

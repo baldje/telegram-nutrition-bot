@@ -322,7 +322,7 @@ async def show_tariffs_handler(message: Message, state: FSMContext):
 
     await message.answer(
         text,
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=Navigation.get_premium_inline_menu()
     )
     await state.set_state(PaymentStates.CHOOSING_TARIFF)
@@ -368,7 +368,7 @@ async def handle_payment_without_db(callback: CallbackQuery, state: FSMContext, 
                 f"💳 *Оплата тарифа: {tariff['label']}*\n\n"
                 f"💰 Сумма: *{price_rub:.0f} ₽*\n\n"
                 f"Нажми кнопку ниже для перехода к оплате:",
-                parse_mode="Markdown",
+                parse_mode="HTML",
                 reply_markup=Navigation.get_payment_keyboard(payment_result['payment_url'])
             )
         else:
@@ -459,7 +459,7 @@ async def check_payment_callback(callback: CallbackQuery, state: FSMContext, db=
 
         await callback.message.answer(
             text,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=Navigation.get_back_button()
         )
 
@@ -518,7 +518,7 @@ async def check_payment_status_handler(message: Message, state: FSMContext, db=N
 
         await message.answer(
             text,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=Navigation.get_back_button()
         )
 
@@ -538,7 +538,7 @@ async def show_my_subscription_handler(message: Message, db=None):
             "📋 *Информация о подписке*\n\n"
             "В тестовом режиме информация о подписке не сохраняется.\n"
             "После оплаты проверьте статус через /check_payment",
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=Navigation.get_main_menu()
         )
         return
@@ -586,7 +586,7 @@ async def premium_info_callback(callback: CallbackQuery):
         "• ♾️ Безлимитное количество запросов\n"
         "• ⚡ Приоритетная поддержка 24/7\n\n"
         "Выберите тариф:",
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=Navigation.get_premium_inline_menu()
     )
     await callback.answer()
@@ -606,6 +606,6 @@ async def premium_features_info_handler(message: Message, db=None):
     )
     await message.answer(
         text,
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=Navigation.get_premium_inline_menu()
     )

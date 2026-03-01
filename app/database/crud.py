@@ -72,8 +72,15 @@ class UserCRUD:
                 # Начисляем бонус пригласившему (50 рублей)
                 referrer.balance += 50.0
 
-                # Обновляем скидку пригласившего (5% за каждого друга, максимум 30%)
-                new_discount = min((referrer.referrals.count() + 1) * 5, 30)
+                # ПОЛУЧАЕМ КОЛИЧЕСТВО РЕФЕРАЛОВ ЧЕРЕЗ ЗАПРОС
+                referrals_result = await session.execute(
+                    select(User).where(User.referrer_id == referrer.id)
+                )
+                referrals = referrals_result.scalars().all()
+                referrals_count = len(referrals)
+
+                # Обновляем скидку пригласившего (5% за каждого, максимум 30%)
+                new_discount = min(referrals_count * 5, 30)
                 referrer.discount_percent = new_discount
 
                 await session.commit()

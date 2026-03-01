@@ -59,7 +59,7 @@ async def cmd_start(message: Message, state: FSMContext, db=None):
             await message.answer(
                 f"👋 *С возвращением!*\n\n"
                 f"Выбери раздел:",
-                parse_mode="Markdown",
+                parse_mode="HTML",
                 reply_markup=Navigation.get_main_menu()
             )
 
@@ -154,7 +154,7 @@ async def nutrition_menu(message: Message):
     await message.answer(
         "🍽 *Раздел питания*\n\n"
         "Выбери действие:",
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=Navigation.get_nutrition_menu()
     )
 
@@ -169,7 +169,7 @@ async def premium_menu(message: Message):
         "• 📊 Расширенной статистике\n"
         "• ♾️ Безлимитным запросам\n\n"
         "Стоимость от 299 ₽/мес",
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=Navigation.get_premium_inline_menu()
     )
 
@@ -180,7 +180,7 @@ async def help_menu(message: Message):
     await message.answer(
         "❓ *Помощь*\n\n"
         "Выбери раздел:",
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=Navigation.get_help_menu()
     )
 
@@ -196,7 +196,7 @@ async def bot_commands(message: Message):
         "/premium - Премиум функции\n"
         "/status - Статус подписки\n"
         "/cancel - Отменить действие",
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=Navigation.get_back_button()
     )
 
@@ -209,7 +209,7 @@ async def support(message: Message):
         "По всем вопросам пишите:\n"
         "✉️ @support_bot\n\n"
         "Среднее время ответа: до 24 часов",
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=Navigation.get_back_button()
     )
 
@@ -231,7 +231,7 @@ async def describe_food_button(message: Message):
         "• 'Выпил стакан молока 3.2%'\n"
         "• 'Перекусил яблоком'\n\n"
         "Я оценю калорийность и БЖУ.",
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=Navigation.get_cancel_keyboard()
     )
 
@@ -302,7 +302,7 @@ async def cmd_status(message: Message, db=None):
 ❓ Хочешь оформить подписку? /subscribe
         """
 
-        await message.answer(response, parse_mode="Markdown", reply_markup=Navigation.get_main_menu())
+        await message.answer(response, parse_mode="HTML", reply_markup=Navigation.get_main_menu())
 
     except Exception as e:
         logger.error(f"Ошибка в /status: {e}")

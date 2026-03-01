@@ -1,8 +1,10 @@
+# app/handlers/onboarding.py
 from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 import logging
+from datetime import datetime, timedelta
 
 from app.utils.states import OnboardingStates, NutritionStates
 from app.database.crud import UserCRUD
@@ -11,7 +13,6 @@ from app.utils.keyboards import get_goal_keyboard, get_gender_keyboard, get_yes_
 from app.utils.openai_client import generate_meal_plan
 from app.utils.calculations import calculate_calories
 from app.utils.navigation import Navigation
-from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 onboarding_router = Router()
@@ -53,6 +54,57 @@ async def cmd_during_onboarding(message: Message, state: FSMContext):
             reply_markup=Navigation.get_main_menu()
         )
 
+# ---------- ШАГ 1: ЦЕЛЬ ----------
+@onboarding_router.message(StateFilter(OnboardingStates.waiting_goal))
+async def process_goal(message: Message, state: FSMContext):
+    # ТЕСТОВОЕ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЮ
+    await message.answer("✅ Функция process_goal вызвана! Сейчас обработаю твой выбор...")
+    # ЭКСТРЕННЫЙ ЛОГ
+    print("🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥")
+    print(f"🔥🔥🔥 process_goal ВЫЗВАН! Текст: {message.text}")
+    print("🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥")
+    import sys
+    sys.stdout.flush()
+    logger.error(f"🔥🔥🔥🔥🔥🔥🔥 process_goal ВЫЗВАН для пользователя {message.from_user.id} с текстом {message.text}")
+
+    # Проверяем на команды
+    if message.text.startswith('/'):
+        logger.info(f"🚫 Игнорируем команду {message.text} в состоянии выбора цели")
+        from app.handlers.start_handler import cmd_start
+        await cmd_start(message, state)
+        return
+
+    logger.info(f"🔥 process_goal ВЫЗВАНА!")
+    logger.info(f"📝 Текст: {message.text}")
+    logger.info(f"👤 User ID: {message.from_user.id}")
+
+    goal = message.text.strip().lower()
+    valid_goals = ['похудение', 'набор массы', 'поддержание', 'рельеф', 'здоровье']
+
+    if goal not in valid_goals:
+        logger.warning(f"❌ Невалидная цель: {goal}")
+        await message.answer(
+            "Пожалуйста, выбери цель из предложенных вариантов:\n"
+            "• Похудение\n"
+            "• Набор массы\n"
+            "• Поддержание\n"
+            "• Рельеф\n"
+            "• Здоровье"
+        )
+        return
+
+    # Сохраняем цель
+    await update_user_data(message.from_user.id, goal=goal)
+    await state.update_data(goal=goal)
+
+    # Отправляем следующий вопрос
+    await message.answer(
+        "Отлично! Теперь укажи свой пол:",
+        reply_markup=get_gender_keyboard()
+    )
+
+    # Меняем состояние
+    await state.set_state(OnboardingStates.waiting_gender)
 
 async def update_user_data(telegram_id: int, **kwargs):
     """Обновить данные пользователя в БД"""
@@ -142,47 +194,6 @@ async def split_and_send_messages(message: Message, text: str, parse_mode: str =
         await message.answer(chunk_with_indicator, parse_mode=parse_mode)
 
 
-# ---------- ШАГ 1: ЦЕЛЬ ----------
-@onboarding_router.message(StateFilter(OnboardingStates.waiting_goal))
-async def process_goal(message: Message, state: FSMContext):
-    # Проверяем на команды
-    if message.text.startswith('/'):
-        logger.info(f"🚫 Игнорируем команду {message.text} в состоянии выбора цели")
-        from app.handlers.start_handler import cmd_start
-        await cmd_start(message, state)
-        return
-
-    logger.info(f"🔥 process_goal ВЫЗВАНА!")
-    logger.info(f"📝 Текст: {message.text}")
-    logger.info(f"👤 User ID: {message.from_user.id}")
-
-    goal = message.text.strip().lower()
-    valid_goals = ['похудение', 'набор массы', 'поддержание', 'рельеф', 'здоровье']
-
-    if goal not in valid_goals:
-        logger.warning(f"❌ Невалидная цель: {goal}")
-        await message.answer(
-            "Пожалуйста, выбери цель из предложенных вариантов:\n"
-            "• Похудение\n"
-            "• Набор массы\n"
-            "• Поддержание\n"
-            "• Рельеф\n"
-            "• Здоровье"
-        )
-        return
-
-    # Сохраняем цель
-    await update_user_data(message.from_user.id, goal=goal)
-    await state.update_data(goal=goal)
-
-    # Отправляем следующий вопрос
-    await message.answer(
-        "Отлично! Теперь укажи свой пол:",
-        reply_markup=get_gender_keyboard()
-    )
-
-    # Меняем состояние
-    await state.set_state(OnboardingStates.waiting_gender)
 
 
 # ---------- ШАГ 2: ПОЛ ----------
@@ -475,6 +486,7 @@ async def process_training_current(message: Message, state: FSMContext):
     )
     await state.set_state(OnboardingStates.waiting_training_wants)
 
+
 # ---------- ШАГ 10: ЖЕЛАНИЕ ТРЕНИРОВАТЬСЯ ----------
 @onboarding_router.message(StateFilter(OnboardingStates.waiting_training_wants))
 async def process_training_wants(message: Message, state: FSMContext):
@@ -576,7 +588,6 @@ async def process_training_wants(message: Message, state: FSMContext):
         training_status = await message.answer("⏳ Теперь генерирую программу тренировок...")
 
         try:
-            # Импортируем функцию из openai_client
             from app.utils.openai_client import generate_training_plan
 
             training_plan = await generate_training_plan(
@@ -591,7 +602,6 @@ async def process_training_wants(message: Message, state: FSMContext):
 
             await training_status.delete()
 
-            # Отправляем программу тренировок отдельным сообщением
             training_message = f"💪 <b>Программа тренировок</b>\n\n{training_plan}"
             await split_and_send_messages(message, training_message, parse_mode='HTML')
 
@@ -611,6 +621,7 @@ async def process_training_wants(message: Message, state: FSMContext):
     )
 
     await state.clear()
+
 
 # ---------- ДЛЯ ОТЛАДКИ ----------
 @onboarding_router.message()

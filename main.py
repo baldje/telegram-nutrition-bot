@@ -77,13 +77,13 @@ async def main():
 
         # Порядок важен: сначала самые специфичные, потом общие
         routers = [
-            ("legal", legal_router),        # /privacy, /offer - самые базовые
-            ("start", start_router),         # /start
-            ("referral", referral_router),   # /referral, /my_discount
-            ("payments", payments_router),   # /premium, /subscribe - специфичные команды
-            ("onboarding", onboarding_router), # онбординг
-            ("photo", photo_router),          # анализ фото
-            ("main", main_router)             # общий роутер (должен быть последним)
+            ("start", start_router),  # 1. Старт
+            ("legal", legal_router),  # 2. Юридические (до согласия)
+            ("referral", referral_router),  # 3. Реферальные
+            ("payments", payments_router),  # 4. Платежи
+            ("onboarding", onboarding_router), # 6. Онбординг (специфичный)
+            ("photo", photo_router),  # 5. Фото (специфичный)
+            ("main", main_router)  # 7. Общий (должен быть последним)
         ]
 
         for name, router in routers:

@@ -47,12 +47,11 @@ async def cmd_referral(message: Message, session: AsyncSession):
     await message.answer(
         text,
         reply_markup=Navigation.get_referral_inline_keyboard(user.referral_code),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 
 @router.message(Command("my_discount"))
-@router.message(F.text == "💰 Моя скидка")
 async def cmd_my_discount(message: Message, session: AsyncSession):
     """Показать текущую скидку"""
     user = await UserCRUD.get_by_telegram_id(session, message.from_user.id)
@@ -79,13 +78,15 @@ async def cmd_my_discount(message: Message, session: AsyncSession):
     await message.answer(
         text,
         reply_markup=Navigation.get_discount_info_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
+@router.message(F.text == "💰 Моя скидка")
+async def text_my_discount(message: Message, session: AsyncSession):
+    await cmd_my_discount(message, session)
 
 @router.message(F.text == "🎁 Рефералка")
 async def text_referral(message: Message, session: AsyncSession):
-    """Показать реферальную программу из меню"""
     await cmd_referral(message, session)
 
 
@@ -95,11 +96,11 @@ async def callback_show_referral(callback: CallbackQuery, session: AsyncSession)
     user = await UserCRUD.get_by_telegram_id(session, callback.from_user.id)
     if user:
         await callback.message.answer(
-            f"🎁 *Реферальная программа*\n\n"
-            f"Ваш код: `{user.referral_code}`\n"
+            f"🎁 <b>Реферальная программа</b>\n\n"
+            f"Ваш код: <code>{user.referral_code}</code>\n"
             f"Скидка: {user.discount_percent or 0}%",
             reply_markup=Navigation.get_referral_inline_keyboard(user.referral_code),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
     await callback.answer()
 
@@ -111,11 +112,11 @@ async def callback_referral_stats(callback: CallbackQuery, session: AsyncSession
     if user:
         referrals_count = await UserCRUD.get_referrals_count(session, user.id)
         await callback.message.answer(
-            f"📊 *Статистика рефералов*\n\n"
+            f"📊 <b>Статистика рефералов</b>\n\n"
             f"• Приглашено друзей: {referrals_count}\n"
             f"• Текущая скидка: {user.discount_percent or 0}%\n"
             f"• Баланс: {user.balance or 0} ₽",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
     await callback.answer()
 
@@ -131,7 +132,7 @@ async def callback_my_discount(callback: CallbackQuery, session: AsyncSession):
 async def callback_referral_rules(callback: CallbackQuery):
     """Показать правила реферальной программы"""
     await callback.message.answer(
-        "📖 *Правила реферальной программы*\n\n"
+        "📖 <b>Правила реферальной программы</b>\n\n"
         "1. За каждого приглашенного друга вы получаете +5% скидки\n"
         "2. Максимальная скидка - 30%\n"
         "3. Друг получает 5% скидки при регистрации\n"
@@ -139,7 +140,7 @@ async def callback_referral_rules(callback: CallbackQuery):
         "5. Скидка действует на все тарифы подписки\n"
         "6. Скидка суммируется с другими акциями\n\n"
         "Чтобы пригласить друга, отправьте ему свою реферальную ссылку",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await callback.answer()
 
@@ -149,10 +150,10 @@ async def callback_copy_ref(callback: CallbackQuery):
     """Обработка копирования реферальной ссылки"""
     code = callback.data.replace('copy_ref_', '')
     await callback.message.answer(
-        f"📋 *Ваша реферальная ссылка:*\n"
-        f"`https://t.me/ваш_бот?start=ref_{code}`\n\n"
+        f"📋 <b>Ваша реферальная ссылка:</b>\n"
+        f"<code>https://t.me/health_ntrtn_helperAI_bot?start=ref_{code}</code>\n\n"
         f"Отправьте эту ссылку друзьям!",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await callback.answer("Ссылка скопирована!", show_alert=False)
 
@@ -167,13 +168,13 @@ async def callback_how_to_increase(callback: CallbackQuery, session: AsyncSessio
         needed = 5 - (referrals_count % 5)
 
         await callback.message.answer(
-            f"📈 *Как увеличить скидку*\n\n"
+            f"📈 <b>Как увеличить скидку</b>\n\n"
             f"• Сейчас у вас {user.discount_percent or 0}% скидки\n"
             f"• До {next_target}% осталось пригласить {needed} друзей\n\n"
-            f"*Способы получить скидку:*\n"
+            f"<b>Способы получить скидку:</b>\n"
             f"1. Приглашайте друзей по ссылке\n"
             f"2. Участвуйте в акциях\n"
             f"3. Покупайте годовую подписку",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
     await callback.answer()

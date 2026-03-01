@@ -27,7 +27,9 @@ class SubscriptionMiddleware(BaseMiddleware):
         "🔙 В главное меню", "❌ Отменить действие", "❓ Помощь",
         "💎 Премиум", "ℹ️ Что умеет бот", "❌ Не сейчас",
         "🍽 Питание", "💪 Тренировки", "📋 Команды бота",
-        "📞 Связаться с поддержкой", "🔐 Документы", "🎁 Рефералка", "💰 Моя скидка"
+        "📞 Связаться с поддержкой", "🔐 Документы", "🎁 Рефералка", "💰 Моя скидка",
+        "✅ Да, начать", "🔐 Согласие на обработку данных",  # ДОБАВЛЕНО
+        "🔐 Политика конфиденциальности", "📄 Публичная оферта"  # ДОБАВЛЕНО
     ]
 
     async def __call__(
@@ -158,11 +160,16 @@ class LegalMiddleware(BaseMiddleware):
             event: TelegramObject,
             data: Dict[str, Any]
     ) -> Any:
+        # Получаем сессию из data
+        session: AsyncSession = data.get('session')
+        state: FSMContext = data.get('state')
+
         # Определяем тип события
         user_id = None
         event_text = None
 
         if isinstance(event, Message):
+            logger.error(f"🔥🔥🔥 LegalMiddleware: получил сообщение '{event.text}' от {event.from_user.id}")
             user_id = event.from_user.id
             event_text = event.text
 
@@ -191,8 +198,7 @@ class LegalMiddleware(BaseMiddleware):
         if not user_id:
             return await handler(event, data)
 
-        # Получаем сессию БД из data
-        session: AsyncSession = data.get('session')
+        # Если нет сессии - пропускаем
         if not session:
             logger.warning("Нет сессии БД в LegalMiddleware")
             return await handler(event, data)
@@ -201,19 +207,26 @@ class LegalMiddleware(BaseMiddleware):
         try:
             has_consent = await UserCRUD.check_consent(session, user_id)
 
+            logger.error(f"🔥🔥🔥 LegalMiddleware: has_consent = {has_consent} для пользователя {user_id}")
+
+            # Проверяем состояние
+            if state:
+                current_state = await state.get_state()
+                logger.error(f"🔥🔥🔥 LegalMiddleware: состояние пользователя {user_id} = {current_state}")
+
             if not has_consent:
                 # Если согласия нет, отправляем напоминание
                 if isinstance(event, Message):
                     await event.answer(
                         CONSENT_REMINDER,
                         reply_markup=Navigation.get_consent_reminder_keyboard(),
-                        parse_mode="Markdown"
+                        parse_mode="HTML"
                     )
                 elif isinstance(event, CallbackQuery):
                     await event.message.answer(
                         CONSENT_REMINDER,
                         reply_markup=Navigation.get_consent_reminder_keyboard(),
-                        parse_mode="Markdown"
+                        parse_mode="HTML"
                     )
                     await event.answer()
 
@@ -221,8 +234,8 @@ class LegalMiddleware(BaseMiddleware):
                 return
         except Exception as e:
             logger.error(f"Ошибка в LegalMiddleware: {e}")
-            # В случае ошибки пропускаем, чтобы не блокировать бота
             return await handler(event, data)
 
         # Если согласие есть, продолжаем
+        logger.error(f"🔥🔥🔥 LegalMiddleware: передаю управление дальше для пользователя {user_id}")
         return await handler(event, data)
