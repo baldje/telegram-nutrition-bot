@@ -4,7 +4,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 import logging
-from datetime import datetime, timedelta  # добавил
+from datetime import datetime, timedelta
 
 from app.utils.states import OnboardingStates
 from app.utils.navigation import Navigation
@@ -32,15 +32,49 @@ def get_goal_keyboard():
 
 @start_router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext, db=None):
-    """Главное меню"""
+    """Главное меню с обработкой редиректов от Т-Банка и реферальных кодов"""
     try:
         await state.clear()
 
-        # Проверяем реферальные параметры
+        # Проверяем параметры (редирект от Т-Банка или рефералка)
         args = message.text.split()
+
         if len(args) > 1:
-            ref_param = args[1]
-            logger.info(f"Реферальный параметр: {ref_param} от пользователя {message.from_user.id}")
+            param = args[1]
+            logger.info(f"📱 Параметр start: {param} от пользователя {message.from_user.id}")
+
+            # Проверяем, это редирект от Т-Банка?
+            if param.startswith('payment_success_'):
+                # Успешная оплата
+                order_id = param.replace('payment_success_', '')
+                await message.answer(
+                    "✅ *Оплата прошла успешно!*\n\n"
+                    "Спасибо за покупку! Ваша подписка активируется через несколько секунд.\n"
+                    "Теперь вам доступны все премиум-функции.",
+                    parse_mode="HTML"
+                )
+                # Проверим статус платежа
+                await check_payment_by_order(message, state, db, order_id, success=True)
+                return
+
+            elif param.startswith('payment_failed_'):
+                # Неуспешная оплата
+                order_id = param.replace('payment_failed_', '')
+                await message.answer(
+                    "❌ *Оплата не прошла*\n\n"
+                    "Попробуйте еще раз или выберите другой способ оплаты.\n"
+                    "Если деньги списались, но подписка не активировалась - напишите в поддержку.",
+                    parse_mode="HTML",
+                    reply_markup=Navigation.get_premium_inline_menu()
+                )
+                await check_payment_by_order(message, state, db, order_id, success=False)
+                return
+
+            elif param.startswith('ref_'):
+                # Реферальный код
+                referral_code = param[4:]  # убираем 'ref_'
+                logger.info(f"✅ Извлечен реферальный код: {referral_code}")
+                await state.update_data(referral_code=referral_code)
 
         # Проверяем, есть ли пользователь в БД
         user = None
@@ -48,7 +82,7 @@ async def cmd_start(message: Message, state: FSMContext, db=None):
             user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
 
         if not user:
-            # Новый пользователь - оригинальный текст
+            # Новый пользователь
             await message.answer(
                 "Привет! Я бот Лизы — помогу тебе с питанием, фото-анализом и тренировками.\n"
                 "3 дня теста бесплатно. Начнём?",
@@ -68,6 +102,57 @@ async def cmd_start(message: Message, state: FSMContext, db=None):
     except Exception as e:
         logger.error(f"Ошибка в cmd_start: {e}")
         await message.answer("❌ Произошла ошибка. Попробуйте позже.")
+
+
+async def check_payment_by_order(message: Message, state: FSMContext, db, order_id: str, success: bool):
+    """Проверка платежа по order_id после редиректа"""
+    try:
+        from app.handlers.payments import TinkoffPaymentService, TARIFFS
+
+        tinkoff_service = TinkoffPaymentService()
+
+        # В тестовом режиме просто показываем сообщение
+        if success:
+            # Активируем тестовую подписку
+            if db and hasattr(db, 'session'):
+                try:
+                    user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
+                    if user:
+                        # Активируем тестовую подписку на 7 дней
+                        from datetime import datetime, timedelta
+
+                        if user.subscription_until and user.subscription_until > datetime.utcnow():
+                            # Если уже есть активная подписка, продлеваем
+                            user.subscription_until += timedelta(days=7)
+                        else:
+                            # Новая подписка
+                            user.subscription_until = datetime.utcnow() + timedelta(days=7)
+
+                        user.subscription_status = "active"
+                        await db.session.commit()
+
+                        await message.answer(
+                            "🎉 *Подписка активирована!*\n\n"
+                            f"✅ Тестовый доступ на 7 дней\n"
+                            f"📅 Действует до: {user.subscription_until.strftime('%d.%m.%Y')}\n\n"
+                            "Теперь вам доступны все функции бота!",
+                            parse_mode="HTML",
+                            reply_markup=Navigation.get_main_menu()
+                        )
+                        return
+                except Exception as e:
+                    logger.error(f"Ошибка активации подписки: {e}")
+
+            # Если не удалось активировать через БД
+            await message.answer(
+                "🎉 *Оплата прошла успешно!*\n\n"
+                "Подписка будет активирована в ближайшее время.\n"
+                "Если этого не произошло - нажмите /check_payment",
+                parse_mode="HTML",
+                reply_markup=Navigation.get_main_menu()
+            )
+    except Exception as e:
+        logger.error(f"Ошибка проверки платежа: {e}")
 
 
 @start_router.message(F.text == "🔙 В главное меню")
@@ -113,7 +198,7 @@ async def start_trial(message: Message, state: FSMContext, db=None):
 
 @start_router.message(F.text == "ℹ️ Что умеет бот")
 async def bot_features(message: Message):
-    """Описание возможностей бота - оригинальный текст"""
+    """Описание возможностей бота"""
     features_text = (
         "🤖 <b>Что я умею:</b>\n\n"
         "🍽 <b>Питание</b>\n"
@@ -160,8 +245,19 @@ async def nutrition_menu(message: Message):
 
 
 @start_router.message(F.text == "💎 Премиум")
-async def premium_menu(message: Message):
+async def premium_menu(message: Message, db=None):
     """Меню премиум"""
+    discount = 0
+
+    # Получаем скидку пользователя
+    if db:
+        try:
+            user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
+            if user:
+                discount = user.discount_percent or 0
+        except:
+            pass
+
     await message.answer(
         "💎 *Премиум подписка*\n\n"
         "Получи доступ к:\n"
@@ -170,7 +266,7 @@ async def premium_menu(message: Message):
         "• ♾️ Безлимитным запросам\n\n"
         "Стоимость от 299 ₽/мес",
         parse_mode="HTML",
-        reply_markup=Navigation.get_premium_inline_menu()
+        reply_markup=Navigation.get_premium_inline_menu(discount)
     )
 
 
@@ -207,7 +303,7 @@ async def support(message: Message):
     await message.answer(
         "📞 *Служба поддержки*\n\n"
         "По всем вопросам пишите:\n"
-        "✉️ @support_bot\n\n"
+        "✉️ @baldje\n\n"
         "Среднее время ответа: до 24 часов",
         parse_mode="HTML",
         reply_markup=Navigation.get_back_button()
@@ -278,7 +374,6 @@ async def cmd_status(message: Message, db=None):
         status_text = "❌ Нет активной подписки"
         days_left = 0
 
-        # ✅ ИСПРАВЛЕНО: используем subscription_until
         if user.subscription_until and user.subscription_until > now:
             days_left = (user.subscription_until - now).days
             status_text = f"⭐ Премиум подписка (осталось {days_left} дн.)"
@@ -298,6 +393,9 @@ async def cmd_status(message: Message, db=None):
 
 🔐 **СТАТУС ПОДПИСКИ:**
 {status_text}
+
+💰 **БАЛАНС:** {user.balance or 0} ₽
+🎁 **СКИДКА:** {user.discount_percent or 0}%
 
 ❓ Хочешь оформить подписку? /subscribe
         """

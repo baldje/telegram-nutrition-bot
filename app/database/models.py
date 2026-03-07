@@ -1,5 +1,5 @@
 # app/database/models.py
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text, BigInteger
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base  # Base из __init__.py
@@ -9,7 +9,7 @@ class User(Base):
     __tablename__ = 'users'
 
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(Integer, unique=True, nullable=False)
+    telegram_id = Column(BigInteger, unique=True, nullable=False)  # ИСПРАВЛЕНО: Integer -> BigInteger
     username = Column(String(255))
     full_name = Column(String(255))
 
@@ -35,18 +35,16 @@ class User(Base):
     photo_analyzes_count = Column(Integer, default=0)
     last_photo_analysis_at = Column(DateTime, nullable=True)
 
-    # Реферальная система (существующие поля)
-    referrer_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    # Реферальная система
+    referrer_id = Column(BigInteger, ForeignKey('users.id'), nullable=True)  # ИСПРАВЛЕНО: Integer -> BigInteger
     referral_code = Column(String(100), unique=True)
     balance = Column(Float, default=0.0)
+    discount_percent = Column(Integer, default=0)
 
-    # НОВЫЕ ПОЛЯ ДЛЯ РЕФЕРАЛЬНОЙ СИСТЕМЫ
-    discount_percent = Column(Integer, default=0)  # Текущая скидка пользователя в %
-
-    # НОВЫЕ ПОЛЯ ДЛЯ ЮРИДИЧЕСКОЙ ЧАСТИ
-    consent_given = Column(Boolean, default=False)  # Согласие на обработку данных
-    consent_date = Column(DateTime, nullable=True)  # Дата согласия
-    consent_ip = Column(String(50), nullable=True)  # IP адрес при согласии
+    # Юридическая часть
+    consent_given = Column(Boolean, default=False)
+    consent_date = Column(DateTime, nullable=True)
+    consent_ip = Column(String(50), nullable=True)
 
     # Статистика и достижения
     medals = Column(Integer, default=0)
@@ -60,11 +58,11 @@ class User(Base):
     referrals = relationship('User', backref='referrer', remote_side=[id])
     payments = relationship('Payment', back_populates='user')
     trainings = relationship('UserTraining', back_populates='user')
-    consent_history = relationship('UserConsent', back_populates='user', cascade="all, delete-orphan")  # НОВАЯ СВЯЗЬ
+    consent_history = relationship('UserConsent', back_populates='user', cascade="all, delete-orphan")
 
 
 class UserConsent(Base):
-    """Модель для хранения истории согласий пользователя (НОВАЯ)"""
+    """Модель для хранения истории согласий пользователя"""
     __tablename__ = 'user_consents'
 
     id = Column(Integer, primary_key=True)
@@ -97,8 +95,8 @@ class Payment(Base):
     status = Column(String(20), default='pending')  # pending, completed, failed
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # НОВОЕ ПОЛЕ
-    discount_applied = Column(Integer, default=0)  # Скидка, примененная к платежу
+    # Скидка, примененная к платежу
+    discount_applied = Column(Integer, default=0)
 
     user = relationship('User', back_populates='payments')
 

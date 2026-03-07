@@ -6,11 +6,97 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from app.utils.openai_photo_analyzer import analyze_food_photo
 from app.utils.states import NutritionStates
-from app.database.crud import UserCRUD  # ДОБАВЛЕНО
+from app.database.crud import UserCRUD
 
 logger = logging.getLogger(__name__)
 photo_router = Router()
 
+
+# ========== ПРИОРИТЕТНЫЙ ОБРАБОТЧИК ТЕКСТОВЫХ ОПИСАНИЙ ==========
+
+@photo_router.message(F.text)
+async def handle_food_text_priority(message: Message, state: FSMContext):
+    """Приоритетный обработчик текстовых описаний еды"""
+
+    # Получаем текущее состояние
+    current_state = await state.get_state()
+
+    # Если пользователь в онбординге - пропускаем
+    if current_state and current_state.startswith("OnboardingStates"):
+        logger.info(f"⏭️ Пропускаем текст в photo_handler, идет онбординг: {current_state}")
+        return
+
+    text = message.text.lower().strip()
+
+    # Игнорируем команды
+    if text.startswith('/'):
+        return
+
+    # Игнорируем слишком короткие сообщения
+    if len(text) < 3:
+        return
+
+    # Ключевые слова для определения описания еды (расширенный список)
+    food_keywords = [
+        # Глаголы приема пищи
+        "съел", "съела", "съели", "съесть", "ел", "ела", "ели", "ем", "едим",
+        "поел", "поела", "поели", "поесть", "кушал", "кушала", "кушали",
+        "перекусил", "перекусила", "перекусили", "перекусить", "отведал",
+        "завтракал", "завтракала", "завтракали", "завтракать",
+        "обедал", "обедала", "обедали", "пообедать",
+        "ужинал", "ужинала", "ужинали", "поужинать",
+        "выпил", "выпила", "выпили", "выпить", "пью", "пьем", "пьёт",
+
+        # Существительные (блюда)
+        "бургер", "пицца", "салат", "суп", "борщ", "каша", "омлет", "яичница",
+        "стейк", "котлета", "сосиска", "колбаса", "бутерброд", "сэндвич",
+        "макароны", "спагетти", "гречка", "рис", "плов", "картошка", "картофель",
+        "пюре", "овощи", "фрукты", "мясо", "курица", "рыба", "котлета",
+
+        # Напитки
+        "кофе", "чай", "сок", "вода", "молоко", "кефир", "йогурт", "смузи",
+        "компот", "лимонад", "кола", "пепси", "фанта",
+
+        # Десерты
+        "шоколад", "конфета", "печенье", "торт", "пирожное", "пирог", "мороженое",
+        "вафля", "пончик", "кекс", "маффин", "десерт",
+
+        # Фрукты и овощи
+        "яблоко", "банан", "апельсин", "мандарин", "груша", "виноград",
+        "помидор", "огурец", "морковь", "капуста", "свекла",
+
+        # Слова-маркеры
+        "блюдо", "еда", "порция", "тарелка", "миска", "стакан", "чашка",
+        "грамм", "килограмм", "калорий", "ккал"
+    ]
+
+    # Проверяем, похоже ли на описание еды
+    is_food_description = any(keyword in text for keyword in food_keywords)
+
+    # Дополнительная проверка: если сообщение короткое - может быть просто название еды
+    words = text.split()
+    if len(words) <= 2 and not is_food_description:
+        single_word_foods = [
+            "пицца", "бургер", "салат", "суп", "борщ", "каша", "стейк",
+            "омлет", "яичница", "кофе", "чай", "сок", "йогурт", "кефир",
+            "яблоко", "банан", "апельсин", "шоколад", "мороженое"
+        ]
+        if text in single_word_foods or any(word in single_word_foods for word in words):
+            is_food_description = True
+            logger.info(f"🔍 Распознано название еды: {text}")
+
+    if is_food_description:
+        logger.info(f"🍽 ПРИОРИТЕТНЫЙ ОБРАБОТЧИК: текст от {message.from_user.id}: '{message.text}'")
+
+        # Вызываем основную функцию анализа текста
+        await handle_food_text(message, state)
+        return  # Важно! Не передаем управление дальше
+
+    # Если не похоже на еду - пропускаем, пусть другие обработчики работают
+    return
+
+
+# ========== ОСНОВНЫЕ ОБРАБОТЧИКИ ==========
 
 @photo_router.message(Command("analyze"))
 async def cmd_analyze(message: Message, state: FSMContext):
@@ -66,9 +152,8 @@ async def handle_text_in_waiting_photo(message: Message, state: FSMContext):
         # Если похоже на еду - перенаправляем в текстовый анализ
         logger.info(f"🔄 Перенаправляем текст на анализ еды: {message.text}")
         await state.clear()
-        # Здесь можно вызвать анализ текста
-        await message.answer("🔍 Анализирую описание еды...")
-        # ... код анализа текста
+        # Вызываем анализ текста
+        await handle_food_text(message, state)
     else:
         # Если не похоже на еду - напоминаем про фото
         await message.answer(
@@ -192,19 +277,20 @@ async def handle_food_photo(message: Message, state: FSMContext):
         # Собираем ответ
         response = "\n".join(response_parts)
 
-        # Кнопки действий
+        # ===== КНОПКИ ВРЕМЕННО ЗАКОММЕНТИРОВАНЫ =====
+        # Функционал "Сохранить в дневник" и "Моя статистика" пока не реализован
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="💾 Сохранить в дневник", callback_data="save_analysis"),
-                InlineKeyboardButton(text="📊 Моя статистика", callback_data="show_stats")
+                # InlineKeyboardButton(text="💾 Сохранить в дневник", callback_data="save_analysis"),
+                # InlineKeyboardButton(text="📊 Моя статистика", callback_data="show_stats")
             ],
             [
                 InlineKeyboardButton(text="🔄 Новый анализ", callback_data="new_analysis"),
-                InlineKeyboardButton(text="❓ Помощь", callback_data="help_food")
+                # InlineKeyboardButton(text="❓ Помощь", callback_data="help_food")
             ]
         ])
 
-        # ===== ДОБАВЛЕНО: Увеличиваем счетчик =====
+        # Увеличиваем счетчик
         try:
             db = message.bot.get('db')
             if db:
@@ -305,10 +391,11 @@ async def handle_food_text(message: Message, state: FSMContext):
 
 💡 *Оценка основана на типичных значениях. Для точного анализа отправьте фото.*"""
 
-        # Кнопки
+        # ===== КНОПКИ ВРЕМЕННО ЗАКОММЕНТИРОВАНЫ =====
+        # Функционал "Сохранить" пока не реализован
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="💾 Сохранить", callback_data="save_text_analysis"),
+                # InlineKeyboardButton(text="💾 Сохранить", callback_data="save_text_analysis"),
                 InlineKeyboardButton(text="📸 Анализ по фото", callback_data="start_photo_analysis")
             ]
         ])

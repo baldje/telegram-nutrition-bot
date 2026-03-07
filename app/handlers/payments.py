@@ -34,6 +34,13 @@ class PaymentStates(StatesGroup):
 
 # Тарифы подписки (в копейках)
 TARIFFS = {
+    # "test_week": {  # ТЕСТОВЫЙ ТАРИФ 1 РУБЛЬ
+    #     "price": 100,  # 1 рубль = 100 копеек
+    #     "duration": timedelta(days=7),
+    #     "label": "🧪 Тестовый доступ на 7 дней",
+    #     "description": "Пробный период для проверки оплаты (1 рубль)",
+    #     "emoji": "🧪"
+    # },
     "month": {
         "price": config.payment.TARIFF_MONTH,
         "duration": timedelta(days=30),
@@ -100,7 +107,7 @@ class TinkoffPaymentService:
 
         # Применяем SHA-256
         import hashlib
-        token = hashlib.sha256(values_string.encode('utf-8')).hexdigest().lower()
+        token = hashlib.sha256(values_string.encode('utf-8')).hexdigest()
 
         logger.debug(f"🔑 Token generation data: {sorted_data}")
         logger.debug(f"📝 Values string: {values_string}")
@@ -165,7 +172,6 @@ class TinkoffPaymentService:
         token = self._generate_token(payload)
         payload["Token"] = token
 
-        # 🔍 ОТЛАДКА: посмотрим, что отправляем
         logger.info(f"📦 URL запроса: {self.api_url}/Init")
         logger.info(f"📦 Payload: {json.dumps(payload, ensure_ascii=False, default=str)}")
 
@@ -177,7 +183,6 @@ class TinkoffPaymentService:
                     headers={"Content-Type": "application/json"}
                 )
 
-                # 🔍 ОТЛАДКА: посмотрим, что пришло в ответ
                 logger.info(f"📥 Response status: {response.status_code}")
                 logger.info(f"📥 Response body: {response.text}")
 
@@ -266,7 +271,6 @@ class TinkoffPaymentService:
             'REFUNDED': '🟡 Возвращен',
             'COMPLETED': '✅ Завершен успешно'
         }
-
         return status_map.get(status, f"Статус: {status}")
 
     def is_success_status(self, status: str) -> bool:
@@ -276,7 +280,7 @@ class TinkoffPaymentService:
 
 def format_tariffs_message() -> str:
     """Форматирование сообщения с тарифами"""
-    text = "💎 *Доступные тарифы подписки*\n\n"
+    text = "💎 **Доступные тарифы подписки**\n\n"
 
     for key, tariff in TARIFFS.items():
         price_rub = tariff['price'] / 100
@@ -285,34 +289,6 @@ def format_tariffs_message() -> str:
         text += f"📝 {tariff['description']}\n\n"
 
     return text
-
-
-def format_subscription_message(subscription_data: Optional[Dict]) -> str:
-    """Форматирование сообщения о подписке"""
-    if not subscription_data:
-        return (
-            "❌ *У вас нет активной подписки*\n\n"
-            "Для доступа ко всем функциям оформите подписку:\n"
-            "👉 /subscribe - посмотреть тарифы\n\n"
-            "🌟 *Преимущества подписки:*\n"
-            "• Анализ фото еды\n"
-            "• Персональные тренировки\n"
-            "• Расширенная статистика\n"
-            "• Приоритетная поддержка"
-        )
-
-    expires_str = subscription_data['expires_at'].strftime('%d.%m.%Y %H:%M')
-    tariff_label = subscription_data['tariff_info'].get('label', 'Неизвестный')
-    emoji = subscription_data['tariff_info'].get('emoji', '🏷️')
-
-    return (
-        f"{emoji} *Ваша подписка активна*\n\n"
-        f"🏷️ Тариф: {tariff_label}\n"
-        f"📅 Истекает: {expires_str}\n"
-        f"⏳ Осталось дней: {subscription_data['days_left']}\n"
-        f"🔄 Автопродление: {'Вкл' if subscription_data['auto_renew'] else 'Выкл'}\n\n"
-        f"Чтобы продлить: /subscribe"
-    )
 
 
 @router.message(Command("subscribe", "tariffs", "buy"))
@@ -328,22 +304,113 @@ async def show_tariffs_handler(message: Message, state: FSMContext):
     await state.set_state(PaymentStates.CHOOSING_TARIFF)
 
 
-async def handle_payment_without_db(callback: CallbackQuery, state: FSMContext, tariff_key: str):
+@router.callback_query(F.data == "pay_with_discount")
+async def pay_with_discount_callback(callback: CallbackQuery, state: FSMContext, db=None):
+    """Оплата со скидкой - показываем тарифы с применением скидки"""
+    logger.info(f"💰 Оплата со скидкой вызвана пользователем {callback.from_user.id}")
+
+    await callback.answer("⏳ Загружаем тарифы...")
+
+    user_id = callback.from_user.id
+    discount = 0
+
+    # Получаем скидку пользователя из БД
+    if db and not TEST_MODE:
+        try:
+            user = await UserCRUD.get_by_telegram_id(db.session, user_id)
+            if user:
+                discount = user.discount_percent or 0
+                logger.info(f"🎁 Скидка пользователя {user_id}: {discount}%")
+        except Exception as e:
+            logger.error(f"Ошибка получения скидки: {e}")
+    else:
+        # В тестовом режиме используем тестовую скидку
+        discount = 5
+        logger.info(f"🎁 Тестовый режим: скидка {discount}%")
+
+    # Формируем сообщение с тарифами и скидкой
+    text = f"💎 **Оплата со скидкой {discount}%**\n\n"
+
+    if discount > 0:
+        text += "🎉 **Для вас доступны цены со скидкой:**\n\n"
+
+        for key, tariff in TARIFFS.items():
+            original_price = tariff['price'] / 100
+            discounted_price = int(tariff['price'] * (100 - discount) / 100) / 100
+
+            text += f"{tariff['emoji']} *{tariff['label']}*\n"
+            text += f"   💰 ~~{original_price:.0f} ₽~~ → **{discounted_price:.0f} ₽**\n"
+            text += f"   📝 {tariff['description']}\n\n"
+    else:
+        text += "У вас пока нет скидки. Приглашайте друзей и получайте скидку до 30%!\n\n"
+        text += format_tariffs_message()
+
+    # Создаем клавиатуру с тарифами
+    builder = InlineKeyboardBuilder()
+
+    if discount > 0:
+        for key, tariff in TARIFFS.items():
+            discounted_price = int(tariff['price'] * (100 - discount) / 100)
+            price_rub = discounted_price / 100
+            builder.row(InlineKeyboardButton(
+                text=f"{tariff['emoji']} {tariff['label']} - {price_rub:.0f} ₽",
+                callback_data=f"tariff_with_discount_{key}_{discount}"
+            ))
+    else:
+        for key, tariff in TARIFFS.items():
+            price_rub = tariff['price'] / 100
+            builder.row(InlineKeyboardButton(
+                text=f"{tariff['emoji']} {tariff['label']} - {price_rub:.0f} ₽",
+                callback_data=f"tariff_{key}"
+            ))
+
+    builder.row(InlineKeyboardButton(text="🎁 Как получить скидку", callback_data="how_to_increase_discount"))
+    builder.row(InlineKeyboardButton(text="◀️ Назад в меню", callback_data="back_to_main"))
+
+    try:
+        await callback.message.edit_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=builder.as_markup()
+        )
+    except Exception as e:
+        logger.warning(f"Не удалось отредактировать сообщение: {e}")
+        await callback.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=builder.as_markup()
+        )
+
+    await callback.answer()
+
+
+async def handle_payment_without_db(callback: CallbackQuery, state: FSMContext, tariff_key: str, discount: int = 0):
     """Обработка платежа без БД (для тестирования)"""
     tariff = TARIFFS[tariff_key]
     user_id = callback.from_user.id
+
+    # Рассчитываем цену со скидкой
+    price = tariff['price']
+    if discount > 0:
+        price = int(price * (100 - discount) / 100)
 
     try:
         # Генерируем order_id
         timestamp = int(datetime.now().timestamp())
         order_id = f"test_{user_id}_{timestamp}"
+        if discount > 0:
+            order_id += f"_discount{discount}"
 
         # Создаем платеж
         tinkoff_service = TinkoffPaymentService()
+        description = tariff['label']
+        if discount > 0:
+            description += f" (скидка {discount}%)"
+
         payment_result = await tinkoff_service.create_payment(
-            amount=tariff['price'],
+            amount=price,
             order_id=order_id,
-            description=tariff['label'],
+            description=description,
             user_id=user_id,
             email="test@test.com",
             phone="+70000000000"
@@ -358,18 +425,34 @@ async def handle_payment_without_db(callback: CallbackQuery, state: FSMContext, 
             payment_id=payment_result['payment_id'],
             order_id=order_id,
             tariff_key=tariff_key,
-            user_id=user_id
+            user_id=user_id,
+            discount_applied=discount
         )
 
         # Отправляем ссылку с красивой клавиатурой
-        price_rub = tariff['price'] / 100
-        if payment_result.get('payment_url'):
-            await callback.message.answer(
+        price_rub = price / 100
+        original_rub = tariff['price'] / 100
+
+        if discount > 0:
+            text = (
+                f"💳 *Оплата со скидкой {discount}%*\n\n"
+                f"📊 *Тариф:* {tariff['label']}\n"
+                f"💰 ~~{original_rub:.0f} ₽~~ → **{price_rub:.0f} ₽**\n"
+                f"🎁 **Вы сэкономили: {original_rub - price_rub:.0f} ₽**\n\n"
+                f"Нажми кнопку ниже для перехода к оплате:"
+            )
+        else:
+            text = (
                 f"💳 *Оплата тарифа: {tariff['label']}*\n\n"
                 f"💰 Сумма: *{price_rub:.0f} ₽*\n\n"
-                f"Нажми кнопку ниже для перехода к оплате:",
+                f"Нажми кнопку ниже для перехода к оплате:"
+            )
+
+        if payment_result.get('payment_url'):
+            await callback.message.answer(
+                text,
                 parse_mode="HTML",
-                reply_markup=Navigation.get_payment_keyboard(payment_result['payment_url'])
+                reply_markup=Navigation.get_payment_keyboard(payment_result['payment_url'], discount)
             )
         else:
             await callback.message.answer(
@@ -389,28 +472,47 @@ async def handle_payment_without_db(callback: CallbackQuery, state: FSMContext, 
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("tariff_with_discount_"))
+async def process_tariff_with_discount(callback: CallbackQuery, state: FSMContext, db=None):
+    """Обработка выбора тарифа со скидкой"""
+    # Формат: tariff_with_discount_test_week_5 или tariff_with_discount_month_5
+    parts = callback.data.split('_')
+
+    # Определяем ключ тарифа
+    if "test_week" in callback.data:
+        tariff_key = "test_week"
+        discount = int(parts[-1])
+    elif "3months" in callback.data:
+        tariff_key = "3months"
+        discount = int(parts[-1])
+    elif "year" in callback.data:
+        tariff_key = "year"
+        discount = int(parts[-1])
+    else:
+        tariff_key = "month"
+        discount = int(parts[-1])
+
+    logger.info(f"💰 Выбран тариф {tariff_key} со скидкой {discount}% пользователем {callback.from_user.id}")
+
+    if tariff_key not in TARIFFS:
+        await callback.answer("❌ Неизвестный тариф", show_alert=True)
+        return
+
+    await callback.answer("⏳ Создаем платеж...")
+    await handle_payment_without_db(callback, state, tariff_key, discount)
+
+
 @router.callback_query(F.data.startswith("tariff_"))
 async def process_tariff_selection(callback: CallbackQuery, state: FSMContext, db=None):
-    """Обработка выбора тарифа"""
+    """Обработка выбора тарифа (без скидки)"""
     tariff_key = callback.data.replace("tariff_", "")
 
     if tariff_key not in TARIFFS:
         await callback.answer("❌ Неизвестный тариф", show_alert=True)
         return
 
-    # Если БД не передана или TEST_MODE=True - используем упрощенный режим
-    if TEST_MODE or db is None:
-        logger.warning("⚠️ Тестовый режим без БД")
-        await handle_payment_without_db(callback, state, tariff_key)
-        return
-
-    # Здесь код с БД (когда заработает)
     await callback.answer("⏳ Создаем платеж...")
-    await callback.message.answer(
-        "ℹ️ Полноценный режим с БД в разработке. Используется тестовый режим.",
-        reply_markup=Navigation.get_back_button()
-    )
-    await handle_payment_without_db(callback, state, tariff_key)
+    await handle_payment_without_db(callback, state, tariff_key, 0)
 
 
 @router.callback_query(F.data == "check_payment")
@@ -418,6 +520,8 @@ async def check_payment_callback(callback: CallbackQuery, state: FSMContext, db=
     """Проверка статуса платежа (колбэк)"""
     data = await state.get_data()
     payment_id = data.get('payment_id')
+    tariff_key = data.get('tariff_key')
+    discount_applied = data.get('discount_applied', 0)
 
     if not payment_id:
         await callback.message.answer(
@@ -428,6 +532,7 @@ async def check_payment_callback(callback: CallbackQuery, state: FSMContext, db=
         return
 
     tinkoff_service = TinkoffPaymentService()
+    await callback.answer("⏳ Проверяем статус платежа...")
 
     try:
         status_result = await tinkoff_service.get_payment_status(payment_id)
@@ -446,22 +551,67 @@ async def check_payment_callback(callback: CallbackQuery, state: FSMContext, db=
         text = f"📊 *Статус платежа:* {status_desc}\n\n"
 
         if tinkoff_service.is_success_status(status):
-            text += "✅ Платеж успешно завершен!\n"
-            text += "Спасибо за покупку!"
-            await state.clear()
-        elif status in ['CANCELED', 'REJECTED', 'AUTH_FAIL', 'DEADLINE_EXPIRED']:
+            # Платеж успешен - активируем подписку
+            text += "✅ Платеж успешно завершен!\n\n"
+
+            if tariff_key and tariff_key in TARIFFS:
+                tariff = TARIFFS[tariff_key]
+
+                # Активируем подписку
+                if db and not TEST_MODE:
+                    try:
+                        user = await UserCRUD.get_by_telegram_id(db.session, callback.from_user.id)
+                        if user:
+                            # Устанавливаем дату окончания подписки
+                            if user.subscription_until and user.subscription_until > datetime.utcnow():
+                                # Если уже есть активная подписка, продлеваем
+                                user.subscription_until += tariff['duration']
+                            else:
+                                # Новая подписка
+                                user.subscription_until = datetime.utcnow() + tariff['duration']
+
+                            user.subscription_status = "active"
+                            await db.session.commit()
+
+                            text += f"🎉 *Подписка активирована!*\n"
+                            text += f"📅 Тариф: {tariff['label']}\n"
+                            text += f"⏳ Действует до: {user.subscription_until.strftime('%d.%m.%Y')}\n\n"
+                            text += "Спасибо за покупку!"
+                        else:
+                            text += "❌ Пользователь не найден в БД."
+                    except Exception as e:
+                        logger.error(f"Ошибка активации подписки: {e}")
+                        text += "❌ Ошибка активации подписки. Обратитесь в поддержку."
+                else:
+                    text += "⚠️ *Тестовый режим*\n"
+                    text += "В тестовом режиме подписка не активируется в БД.\n"
+                    text += f"Тариф: {tariff['label']} на {tariff['duration'].days} дней"
+
+                await state.clear()
+            else:
+                text += "Тариф не найден. Обратитесь в поддержку."
+
+        elif status in ['CANCELED', 'REJECTED', 'DEADLINE_EXPIRED']:
             text += "❌ Платеж не прошел.\n"
             text += "Попробуйте снова: /subscribe"
             await state.clear()
         else:
-            text += "🔄 Платеж обрабатывается.\n"
-            text += "Проверьте статус позже."
+            text += "🔄 Платеж еще обрабатывается.\n"
+            text += "Попробуйте проверить позже или нажмите кнопку еще раз."
 
+        # Отправляем сообщение
         await callback.message.answer(
             text,
             parse_mode="HTML",
             reply_markup=Navigation.get_back_button()
         )
+
+        # Если платеж успешен, можно также удалить предыдущее сообщение
+        if tinkoff_service.is_success_status(status):
+            try:
+                await callback.message.delete()
+            except:
+                pass
 
     except Exception as e:
         logger.error(f"Status check error: {e}")
@@ -475,9 +625,11 @@ async def check_payment_callback(callback: CallbackQuery, state: FSMContext, db=
 
 @router.message(Command("check_payment"))
 async def check_payment_status_handler(message: Message, state: FSMContext, db=None):
-    """Проверка статуса платежа"""
+    """Проверка статуса платежа по команде"""
     data = await state.get_data()
     payment_id = data.get('payment_id')
+    tariff_key = data.get('tariff_key')
+    discount_applied = data.get('discount_applied', 0)
 
     if not payment_id:
         await message.answer(
@@ -488,6 +640,7 @@ async def check_payment_status_handler(message: Message, state: FSMContext, db=N
         return
 
     tinkoff_service = TinkoffPaymentService()
+    await message.answer("⏳ Проверяем статус платежа...")
 
     try:
         status_result = await tinkoff_service.get_payment_status(payment_id)
@@ -505,21 +658,56 @@ async def check_payment_status_handler(message: Message, state: FSMContext, db=N
         text = f"📊 *Статус платежа:* {status_desc}\n\n"
 
         if tinkoff_service.is_success_status(status):
-            text += "✅ Платеж успешно завершен!\n"
-            text += "Спасибо за покупку!"
-            await state.clear()
-        elif status in ['CANCELED', 'REJECTED', 'AUTH_FAIL', 'DEADLINE_EXPIRED']:
+            text += "✅ Платеж успешно завершен!\n\n"
+
+            if tariff_key and tariff_key in TARIFFS:
+                tariff = TARIFFS[tariff_key]
+
+                # Активируем подписку
+                if db and not TEST_MODE:
+                    try:
+                        user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
+                        if user:
+                            # Устанавливаем дату окончания подписки
+                            if user.subscription_until and user.subscription_until > datetime.utcnow():
+                                # Если уже есть активная подписка, продлеваем
+                                user.subscription_until += tariff['duration']
+                            else:
+                                # Новая подписка
+                                user.subscription_until = datetime.utcnow() + tariff['duration']
+
+                            user.subscription_status = "active"
+                            await db.session.commit()
+
+                            text += f"🎉 *Подписка активирована!*\n"
+                            text += f"📅 Тариф: {tariff['label']}\n"
+                            text += f"⏳ Действует до: {user.subscription_until.strftime('%d.%m.%Y')}\n\n"
+                            text += "Спасибо за покупку!"
+                        else:
+                            text += "❌ Пользователь не найден в БД."
+                    except Exception as e:
+                        logger.error(f"Ошибка активации подписки: {e}")
+                        text += "❌ Ошибка активации подписки. Обратитесь в поддержку."
+                else:
+                    text += "⚠️ *Тестовый режим*\n"
+                    text += "В тестовом режиме подписка не активируется в БД.\n"
+                    text += f"Тариф: {tariff['label']} на {tariff['duration'].days} дней"
+
+                await state.clear()
+            else:
+                text += "Тариф не найден. Обратитесь в поддержку"
+        elif status in ['CANCELED', 'REJECTED', 'DEADLINE_EXPIRED']:
             text += "❌ Платеж не прошел.\n"
             text += "Попробуйте снова: /subscribe"
             await state.clear()
         else:
-            text += "🔄 Платеж обрабатывается.\n"
-            text += "Проверьте статус позже."
+            text += "🔄 Платеж еще обрабатывается.\n"
+            text += "Попробуйте проверить позже или нажмите /check_payment еще раз."
 
         await message.answer(
             text,
             parse_mode="HTML",
-            reply_markup=Navigation.get_back_button()
+            reply_markup=Navigation.get_main_menu()
         )
 
     except Exception as e:
@@ -543,11 +731,44 @@ async def show_my_subscription_handler(message: Message, db=None):
         )
         return
 
-    # Здесь код с БД
-    await message.answer(
-        "ℹ️ Полноценный режим с БД в разработке.",
-        reply_markup=Navigation.get_main_menu()
-    )
+    try:
+        user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
+        if not user:
+            await message.answer(
+                "❌ Пользователь не найден.",
+                reply_markup=Navigation.get_main_menu()
+            )
+            return
+
+        if user.subscription_until and user.subscription_until > datetime.utcnow():
+            days_left = (user.subscription_until - datetime.utcnow()).days
+            text = (
+                f"✅ *У вас активна подписка*\n\n"
+                f"📅 Действует до: {user.subscription_until.strftime('%d.%m.%Y')}\n"
+                f"⏳ Осталось дней: {days_left}\n"
+                f"💰 Баланс: {user.balance or 0} ₽\n"
+                f"🎁 Скидка: {user.discount_percent or 0}%"
+            )
+        else:
+            text = (
+                f"❌ *Нет активной подписки*\n\n"
+                f"💰 Баланс: {user.balance or 0} ₽\n"
+                f"🎁 Скидка: {user.discount_percent or 0}%\n\n"
+                f"Оформите подписку: /subscribe"
+            )
+
+        await message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=Navigation.get_main_menu()
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка получения информации о подписке: {e}")
+        await message.answer(
+            "❌ Ошибка получения информации.",
+            reply_markup=Navigation.get_main_menu()
+        )
 
 
 @router.message(Command("payment_history", "payments"))

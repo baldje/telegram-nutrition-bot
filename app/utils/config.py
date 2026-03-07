@@ -84,7 +84,7 @@ class AppConfig:
                             )
 
     bonus_per_referral: int = field(default_factory=lambda:
-    int(os.getenv("BONUS_PER_REFERRAL", "10000"))
+    int(os.getenv("BONUS_PER_REFERRAL", "5000"))  # 50 рублей в копейках
                                     )
 
     partner_reward: int = field(default_factory=lambda:
@@ -160,6 +160,11 @@ class PaymentConfig:
     TARIFF_YEAR: int = field(default_factory=lambda:
     int(os.getenv("TARIFF_YEAR", "299000"))
                              )  # 2990 руб
+
+    # # ТЕСТОВЫЙ ТАРИФ на 1 рубль (7 дней)
+    # TARIFF_TEST_WEEK: int = field(default_factory=lambda:
+    # int(os.getenv("TARIFF_TEST_WEEK", "100"))
+    #                               )  # 1 рубль = 100 копеек
 
     def validate(self):
         if not self.TINKOFF_TERMINAL_KEY or not self.TINKOFF_SECRET_KEY:

@@ -5,6 +5,7 @@ from typing import Any, Awaitable, Callable, Dict, Union
 from datetime import datetime, timedelta
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.fsm.context import FSMContext
 
 from app.database.crud import UserCRUD
 from app.utils.navigation import Navigation
@@ -28,8 +29,8 @@ class SubscriptionMiddleware(BaseMiddleware):
         "💎 Премиум", "ℹ️ Что умеет бот", "❌ Не сейчас",
         "🍽 Питание", "💪 Тренировки", "📋 Команды бота",
         "📞 Связаться с поддержкой", "🔐 Документы", "🎁 Рефералка", "💰 Моя скидка",
-        "✅ Да, начать", "🔐 Согласие на обработку данных",  # ДОБАВЛЕНО
-        "🔐 Политика конфиденциальности", "📄 Публичная оферта"  # ДОБАВЛЕНО
+        "✅ Да, начать", "🔐 Согласие на обработку данных",
+        "🔐 Политика конфиденциальности", "📄 Публичная оферта"
     ]
 
     async def __call__(
@@ -140,18 +141,21 @@ class LegalMiddleware(BaseMiddleware):
     Должен быть добавлен после DatabaseMiddleware и перед SubscriptionMiddleware.
     """
 
-    # Разрешенные команды без согласия
+    # Разрешенные команды без согласия (полное совпадение или начало)
     ALLOWED_COMMANDS = [
-        '/start', '/privacy', '/offer', '/referral', '/my_discount'
+        '/start', '/privacy', '/offer'
+    ]
+
+    # Разрешенные текстовые кнопки без согласия
+    ALLOWED_TEXT_BUTTONS = [
+        "🔐 Документы", "🔐 Политика конфиденциальности", "📄 Публичная оферта",
+        "✅ Да, начать", "❌ Не сейчас", "ℹ️ Что умеет бот"
     ]
 
     # Разрешенные callback данные
     ALLOWED_CALLBACKS = [
         'show_privacy', 'show_offer', 'accept_terms', 'decline_terms', 'show_documents',
-        'show_referral', 'referral_stats', 'my_discount', 'referral_rules',
-        'activate_referral', 'how_to_increase_discount', 'pay_with_discount',
-        'back_to_main', 'premium_info', 'check_payment', 'cancel_payment',
-        'tariff_month', 'tariff_3months', 'tariff_year'
+        'back_to_main', 'premium_info'
     ]
 
     async def __call__(
@@ -173,14 +177,22 @@ class LegalMiddleware(BaseMiddleware):
             user_id = event.from_user.id
             event_text = event.text
 
+            # ВСЕГДА пропускаем команду /start (даже с параметрами)
+            if event_text and event_text.startswith('/start'):
+                logger.error(f"🔥🔥🔥 LegalMiddleware: ПРОПУСКАЕМ /start для {user_id}")
+                return await handler(event, data)
+
             # Проверяем разрешенные команды
-            if event_text:
-                # Проверяем /start с реферальным кодом
-                if event_text.startswith('/start'):
+            if event_text and event_text.startswith('/'):
+                command = event_text.split()[0]  # берем только команду без параметров
+                if command in self.ALLOWED_COMMANDS:
+                    logger.error(f"🔥🔥🔥 LegalMiddleware: ПРОПУСКАЕМ команду {command} для {user_id}")
                     return await handler(event, data)
-                # Проверяем другие разрешенные команды
-                if event_text.split()[0] in self.ALLOWED_COMMANDS:
-                    return await handler(event, data)
+
+            # Проверяем разрешенные текстовые кнопки
+            if event_text in self.ALLOWED_TEXT_BUTTONS:
+                logger.error(f"🔥🔥🔥 LegalMiddleware: ПРОПУСКАЕМ кнопку {event_text} для {user_id}")
+                return await handler(event, data)
 
         elif isinstance(event, CallbackQuery):
             user_id = event.from_user.id
@@ -188,11 +200,9 @@ class LegalMiddleware(BaseMiddleware):
 
             # Проверяем разрешенные callback'и
             if event_text:
-                # Проверяем copy_ref_* (начинается с префикса)
-                if event_text.startswith('copy_ref_'):
-                    return await handler(event, data)
                 # Проверяем точное совпадение
                 if event_text in self.ALLOWED_CALLBACKS:
+                    logger.error(f"🔥🔥🔥 LegalMiddleware: ПРОПУСКАЕМ callback {event_text} для {user_id}")
                     return await handler(event, data)
 
         if not user_id:
@@ -214,28 +224,38 @@ class LegalMiddleware(BaseMiddleware):
                 current_state = await state.get_state()
                 logger.error(f"🔥🔥🔥 LegalMiddleware: состояние пользователя {user_id} = {current_state}")
 
-            if not has_consent:
-                # Если согласия нет, отправляем напоминание
-                if isinstance(event, Message):
-                    await event.answer(
-                        CONSENT_REMINDER,
-                        reply_markup=Navigation.get_consent_reminder_keyboard(),
-                        parse_mode="HTML"
-                    )
-                elif isinstance(event, CallbackQuery):
-                    await event.message.answer(
-                        CONSENT_REMINDER,
-                        reply_markup=Navigation.get_consent_reminder_keyboard(),
-                        parse_mode="HTML"
-                    )
-                    await event.answer()
+            # Если согласие есть - пропускаем
+            if has_consent:
+                logger.error(f"🔥🔥🔥 LegalMiddleware: передаю управление дальше для пользователя {user_id}")
+                return await handler(event, data)
 
-                # Не передаем управление дальше
-                return
+            # Если согласия нет, но пользователь уже существует - проверяем состояние
+            user = await UserCRUD.get_by_telegram_id(session, user_id)
+            if user and user.consent_given:
+                # Если в БД есть согласие, но check_consent вернул False - обновляем кэш
+                logger.error(f"🔥🔥🔥 LegalMiddleware: обновляем кэш для пользователя {user_id}")
+                return await handler(event, data)
+
+            # Если согласия нет, отправляем напоминание
+            logger.error(f"🔥🔥🔥 LegalMiddleware: блокирую пользователя {user_id} без согласия")
+
+            if isinstance(event, Message):
+                await event.answer(
+                    CONSENT_REMINDER,
+                    reply_markup=Navigation.get_consent_reminder_keyboard(),
+                    parse_mode="HTML"
+                )
+            elif isinstance(event, CallbackQuery):
+                await event.message.answer(
+                    CONSENT_REMINDER,
+                    reply_markup=Navigation.get_consent_reminder_keyboard(),
+                    parse_mode="HTML"
+                )
+                await event.answer()
+
+            # Не передаем управление дальше
+            return
+
         except Exception as e:
             logger.error(f"Ошибка в LegalMiddleware: {e}")
             return await handler(event, data)
-
-        # Если согласие есть, продолжаем
-        logger.error(f"🔥🔥🔥 LegalMiddleware: передаю управление дальше для пользователя {user_id}")
-        return await handler(event, data)

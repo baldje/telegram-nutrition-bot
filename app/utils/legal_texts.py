@@ -147,7 +147,7 @@ REFERRAL_TEXT = """
 Приглашайте друзей и получайте скидки на подписку!
 
 🔗 *Ваша реферальная ссылка:*
-`https://t.me/ваш_бот?start=ref_{code}`
+`https://t.me/health_ntrtn_helperAI_bot?start=ref_{code}`
 
 📊 *Ваша статистика:*
 • Приглашено друзей: {referrals_count}

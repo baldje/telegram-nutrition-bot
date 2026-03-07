@@ -54,9 +54,13 @@ class UserCRUD:
 
         return user
 
+    # app/database/crud.py - только обновленный метод process_referral
+
     @staticmethod
     async def process_referral(session, referral_code: str, new_user_id: int):
         """Обрабатывает реферальный переход"""
+        logger.info(f"🔄 Обработка реферального кода: {referral_code} для нового пользователя {new_user_id}")
+
         # Находим пользователя по реферальному коду
         result = await session.execute(
             select(User).where(User.referral_code == referral_code)
@@ -64,28 +68,36 @@ class UserCRUD:
         referrer = result.scalar_one_or_none()
 
         if referrer:
+            logger.info(f"✅ Найден пригласивший: {referrer.id} с кодом {referral_code}")
+
             # Обновляем нового пользователя
             new_user = await UserCRUD.get_by_id(session, new_user_id)
             if new_user:
                 new_user.referrer_id = referrer.id
+                logger.info(f"✅ Новому пользователю {new_user_id} установлен referrer_id = {referrer.id}")
 
                 # Начисляем бонус пригласившему (50 рублей)
                 referrer.balance += 50.0
+                logger.info(f"💰 Пригласившему {referrer.id} начислено 50 ₽. Новый баланс: {referrer.balance}")
 
-                # ПОЛУЧАЕМ КОЛИЧЕСТВО РЕФЕРАЛОВ ЧЕРЕЗ ЗАПРОС
+                # Получаем количество рефералов
                 referrals_result = await session.execute(
                     select(User).where(User.referrer_id == referrer.id)
                 )
                 referrals = referrals_result.scalars().all()
                 referrals_count = len(referrals)
+                logger.info(f"👥 У пользователя {referrer.id} теперь {referrals_count} рефералов")
 
                 # Обновляем скидку пригласившего (5% за каждого, максимум 30%)
                 new_discount = min(referrals_count * 5, 30)
                 referrer.discount_percent = new_discount
+                logger.info(f"🎁 Пригласившему {referrer.id} установлена скидка {new_discount}%")
 
                 await session.commit()
-                logger.info(f"Реферал обработан: {referrer.id} пригласил {new_user_id}")
+                logger.info(f"✅ Реферал успешно обработан: {referrer.id} пригласил {new_user_id}")
                 return referrer
+        else:
+            logger.warning(f"❌ Реферальный код {referral_code} не найден в базе")
 
         return None
 
@@ -109,6 +121,9 @@ class UserCRUD:
         """Обновить данные онбординга пользователя"""
         updated = False
 
+        # Сохраняем telegram_id ДО обновления (чтобы использовать в логах)
+        user_tg_id = user.telegram_id
+
         for key, value in kwargs.items():
             if hasattr(user, key) and value is not None:
                 current_value = getattr(user, key)
@@ -120,10 +135,12 @@ class UserCRUD:
         if updated:
             session.add(user)
             await session.commit()
-            logger.info(f"Данные пользователя {user.telegram_id} обновлены")
+            # ИСПОЛЬЗУЕМ сохраненный telegram_id
+            logger.info(f"Данные пользователя {user_tg_id} обновлены")
+        else:
+            logger.debug(f"Нет изменений для пользователя {user_tg_id}")
 
         return user
-
     @staticmethod
     async def activate_subscription(session, user: User, period: str, discount: int = 0):
         """Активация подписки пользователя с учетом скидки"""

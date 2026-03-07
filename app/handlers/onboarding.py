@@ -622,17 +622,17 @@ async def process_training_wants(message: Message, state: FSMContext):
 
     await state.clear()
 
-
-# ---------- ДЛЯ ОТЛАДКИ ----------
-@onboarding_router.message()
-async def debug_handler(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    logger.info(f"🔍 DEBUG: Пользователь {message.from_user.id} отправил: '{message.text}', состояние: {current_state}")
-
-    # Если есть активное состояние, но оно не обработано - сообщим об этом
-    if current_state:
-        await message.answer(
-            f"⚠️ Что-то пошло не так. Текущее состояние: {current_state}.\n"
-            f"Напиши /start чтобы начать заново.",
-            reply_markup=Navigation.get_main_menu()
-        )
+#
+# # ---------- ДЛЯ ОТЛАДКИ ----------
+# @onboarding_router.message()
+# async def debug_handler(message: Message, state: FSMContext):
+#     current_state = await state.get_state()
+#     logger.info(f"🔍 DEBUG: Пользователь {message.from_user.id} отправил: '{message.text}', состояние: {current_state}")
+#
+#     # Если есть активное состояние, но оно не обработано - сообщим об этом
+#     if current_state:
+#         await message.answer(
+#             f"⚠️ Что-то пошло не так. Текущее состояние: {current_state}.\n"
+#             f"Напиши /start чтобы начать заново.",
+#             reply_markup=Navigation.get_main_menu()
+#         )

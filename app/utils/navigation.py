@@ -56,7 +56,14 @@ class Navigation:
         """Inline меню для премиум с учетом скидки"""
         builder = InlineKeyboardBuilder()
 
-        # Расчет цен со скидкой
+        # # Тестовый тариф (всегда показываем)
+        # builder.row(
+        #     InlineKeyboardButton(text="🧪 Тестовый доступ 7 дней - 1 ₽",
+        #                          callback_data="tariff_test_week"),
+        #     width=1
+        # )
+
+        # Расчет цен со скидкой для остальных тарифов
         month_price = 299
         three_months_price = 799
         year_price = 2990
@@ -70,17 +77,17 @@ class Navigation:
 
         builder.row(
             InlineKeyboardButton(text=f"📅 1 месяц - {month_price} ₽{discount_text}",
-                               callback_data="tariff_month"),
+                                 callback_data="tariff_month"),
             width=1
         )
         builder.row(
             InlineKeyboardButton(text=f"📊 3 месяца - {three_months_price} ₽{discount_text}",
-                               callback_data="tariff_3months"),
+                                 callback_data="tariff_3months"),
             width=1
         )
         builder.row(
             InlineKeyboardButton(text=f"🏆 1 год - {year_price} ₽{discount_text}",
-                               callback_data="tariff_year"),
+                                 callback_data="tariff_year"),
             width=1
         )
         builder.row(
@@ -91,6 +98,10 @@ class Navigation:
             InlineKeyboardButton(text="🎁 Реферальная программа", callback_data="referral_info"),
             InlineKeyboardButton(text="💰 Моя скидка", callback_data="my_discount"),
             width=2
+        )
+        builder.row(
+            InlineKeyboardButton(text="💳 Оплатить со скидкой", callback_data="pay_with_discount"),
+            width=1
         )
         builder.row(
             InlineKeyboardButton(text="◀️ Назад в меню", callback_data="back_to_main"),

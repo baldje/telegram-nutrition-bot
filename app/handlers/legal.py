@@ -105,31 +105,21 @@ async def callback_show_documents(callback: CallbackQuery):
 
 @router.callback_query(F.data == "accept_terms")
 async def callback_accept_terms(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
-    # СРОЧНЫЙ ЛОГ
-    print("🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥")
-    print(f"🔥 ФУНКЦИЯ ВЫЗВАНА! User: {callback.from_user.id}")
-    print("🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥")
-
-    import sys
-    sys.stdout.flush()
-
-    logger.error(f"🔥🔥🔥🔥 КРИТИЧЕСКИЙ ЛОГ: callback_accept_terms ВЫЗВАН для {callback.from_user.id}")
+    # Логи для отладки
+    logger.error(f"🔥🔥🔥 callback_accept_terms ВЫЗВАН для {callback.from_user.id}")
 
     user_id = callback.from_user.id
     username = callback.from_user.username
     full_name = callback.from_user.full_name
 
-    logger.info(f"🔥🔥🔥 callback_accept_terms ВЫЗВАН для пользователя {user_id}")
-    logger.info(f"📝 Текст сообщения: {callback.message.text}")
+    # ПОЛУЧАЕМ РЕФЕРАЛЬНЫЙ КОД ИЗ FSM
+    state_data = await state.get_data()
+    referral_code = state_data.get('referral_code')
 
-    # Получаем реферальный код из deep link (если был)
-    referral_code = None
-    if callback.message and callback.message.text:
-        import re
-        match = re.search(r'ref_(\w+)', callback.message.text)
-        if match:
-            referral_code = match.group(1)
-            logger.info(f"🔍 Найден реферальный код: {referral_code} для пользователя {user_id}")
+    if referral_code:
+        logger.info(f"✅ Найден реферальный код в FSM: {referral_code} для пользователя {user_id}")
+    else:
+        logger.info(f"ℹ️ Реферальный код не найден в FSM для пользователя {user_id}")
 
     # Получаем пользователя
     user = await UserCRUD.get_by_telegram_id(session, user_id)
@@ -173,25 +163,21 @@ async def callback_accept_terms(callback: CallbackQuery, session: AsyncSession, 
         parse_mode="HTML",
         reply_markup=None
     )
-    logger.info(f"📝 Исходное сообщение отредактировано")
 
-    # Проверяем текущее состояние
-    current_state = await state.get_state()
-    logger.info(f"🔍 Текущее состояние ДО установки: {current_state}")
+    # ОЧИЩАЕМ РЕФЕРАЛЬНЫЙ КОД ИЗ FSM (чтобы не мешал при следующих входах)
+    await state.update_data(referral_code=None)
 
-    # ВАЖНО: Запускаем онбординг
-    logger.info(f"🎯 Отправляем сообщение для начала онбординга")
-
-    # УБИРАЕМ ПОВТОРНЫЙ ИМПОРТ! get_goal_keyboard уже импортирован вверху файла
+    # Запускаем онбординг
     await callback.message.answer(
         "🎉 Отлично! Давай создадим твой персональный план.\n\n"
         "🎯 <b>Какую цель ты преследуешь?</b>",
-        reply_markup=get_goal_keyboard(),  # используем уже импортированную функцию
+        reply_markup=get_goal_keyboard(),
         parse_mode="HTML"
     )
 
     # Устанавливаем состояние для онбординга
     await state.set_state(OnboardingStates.waiting_goal)
+
 
 @router.callback_query(F.data == "decline_terms")
 async def callback_decline_terms(callback: CallbackQuery):

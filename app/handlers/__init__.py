@@ -8,10 +8,10 @@ from .photo_handler import photo_router
 from .main import main_router
 __all__ = [
     'start_router',
-    'legal_router',
-    'referral_router',
-    'payments_router',
     'onboarding_router',
     'photo_router',
-    'main_router'
+    'payments_router',
+    'main_router',
+    'legal_router',
+    'referral_router'
 ]

@@ -8,7 +8,7 @@ import logging
 from app.services.onboarding import OnboardingService, OnboardingStates
 from app.services.nutrition import NutritionService
 from app.services.training import TrainingService
-# from app.keyboards.main import MainKeyboard
+from app.utils.navigation import Navigation
 from datetime import datetime
 
 # ✅ ЭТО САМОЕ ГЛАВНОЕ - создаем роутер
@@ -46,3 +46,31 @@ async def show_trial_day(message: Message, user):
             "День 3: Готова неделя питания! Выбери вариант:",
             # reply_markup=MainKeyboard.day3_options()  # закомментировано, так как не импортировано
         )
+
+
+# ===== УДАЛЕНО: Обработчик для кнопки оплаты со скидкой из главного меню =====
+
+
+# ===== ОБРАБОТЧИК ДЛЯ ВОЗВРАТА В ГЛАВНОЕ МЕНЮ =====
+
+@main_router.message(F.text == "🔙 В главное меню")
+async def back_to_main_menu(message: Message, state: FSMContext):
+    """Возврат в главное меню"""
+    await state.clear()
+    await message.answer(
+        "Главное меню:",
+        reply_markup=Navigation.get_main_menu()
+    )
+
+
+# ===== ОБРАБОТЧИК ДЛЯ ОТМЕНЫ ДЕЙСТВИЯ =====
+
+@main_router.message(F.text == "❌ Отменить действие")
+async def cancel_action(message: Message, state: FSMContext):
+    """Отмена текущего действия"""
+    await state.clear()
+    await message.answer(
+        "✅ Действие отменено.\n"
+        "Выбери, что хочешь сделать:",
+        reply_markup=Navigation.get_main_menu()
+    )
