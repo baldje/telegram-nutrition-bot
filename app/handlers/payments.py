@@ -23,7 +23,8 @@ from app.utils.navigation import Navigation
 logger = logging.getLogger(__name__)
 router = Router()
 
-TEST_MODE = True  # Режим тестирования без БД
+# ===== БОЕВОЙ РЕЖИМ =====
+TEST_MODE = False  # Режим тестирования вкл!
 
 
 class PaymentStates(StatesGroup):
@@ -34,13 +35,13 @@ class PaymentStates(StatesGroup):
 
 # Тарифы подписки (в копейках)
 TARIFFS = {
-    # "test_week": {  # ТЕСТОВЫЙ ТАРИФ 1 РУБЛЬ
-    #     "price": 100,  # 1 рубль = 100 копеек
-    #     "duration": timedelta(days=7),
-    #     "label": "🧪 Тестовый доступ на 7 дней",
-    #     "description": "Пробный период для проверки оплаты (1 рубль)",
-    #     "emoji": "🧪"
-    # },
+    "test_week": {  # ТЕСТОВЫЙ ТАРИФ
+        "price": 100,  # 1 рубль
+        "duration": timedelta(days=7),
+        "label": "🧪 Тестовый доступ (1 рубль)",
+        "description": "Только для проверки платежей",
+        "emoji": "🧪"
+    },
     "month": {
         "price": config.payment.TARIFF_MONTH,
         "duration": timedelta(days=30),
@@ -384,8 +385,8 @@ async def pay_with_discount_callback(callback: CallbackQuery, state: FSMContext,
     await callback.answer()
 
 
-async def handle_payment_without_db(callback: CallbackQuery, state: FSMContext, tariff_key: str, discount: int = 0):
-    """Обработка платежа без БД (для тестирования)"""
+async def handle_payment_without_db(callback: CallbackQuery, state: FSMContext, tariff_key: str, discount: int = 0, db=None):
+    """Обработка платежа"""
     tariff = TARIFFS[tariff_key]
     user_id = callback.from_user.id
 
@@ -397,7 +398,7 @@ async def handle_payment_without_db(callback: CallbackQuery, state: FSMContext, 
     try:
         # Генерируем order_id
         timestamp = int(datetime.now().timestamp())
-        order_id = f"test_{user_id}_{timestamp}"
+        order_id = f"{user_id}_{timestamp}"
         if discount > 0:
             order_id += f"_discount{discount}"
 
@@ -419,6 +420,22 @@ async def handle_payment_without_db(callback: CallbackQuery, state: FSMContext, 
         if not payment_result.get('success'):
             await callback.message.answer(f"❌ Ошибка: {payment_result.get('error')}")
             return
+
+        # ===== СОХРАНЯЕМ ПЛАТЕЖ В БД =====
+        if db and not TEST_MODE:
+            try:
+                # Сохраняем платеж в БД
+                payment = await PaymentCRUD.create(
+                    session=db.session,
+                    user_id=user_id,
+                    amount=price,
+                    period=tariff_key,
+                    payment_id=payment_result['payment_id'],
+                    discount=discount
+                )
+                logger.info(f"💾 Платеж сохранен в БД: {payment_result['payment_id']}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка сохранения платежа: {e}")
 
         # Сохраняем в state
         await state.update_data(
@@ -475,14 +492,11 @@ async def handle_payment_without_db(callback: CallbackQuery, state: FSMContext, 
 @router.callback_query(F.data.startswith("tariff_with_discount_"))
 async def process_tariff_with_discount(callback: CallbackQuery, state: FSMContext, db=None):
     """Обработка выбора тарифа со скидкой"""
-    # Формат: tariff_with_discount_test_week_5 или tariff_with_discount_month_5
+    # Формат: tariff_with_discount_month_5
     parts = callback.data.split('_')
 
     # Определяем ключ тарифа
-    if "test_week" in callback.data:
-        tariff_key = "test_week"
-        discount = int(parts[-1])
-    elif "3months" in callback.data:
+    if "3months" in callback.data:
         tariff_key = "3months"
         discount = int(parts[-1])
     elif "year" in callback.data:
@@ -557,9 +571,17 @@ async def check_payment_callback(callback: CallbackQuery, state: FSMContext, db=
             if tariff_key and tariff_key in TARIFFS:
                 tariff = TARIFFS[tariff_key]
 
-                # Активируем подписку
+                # ===== АКТИВИРУЕМ ПОДПИСКУ В БД =====
                 if db and not TEST_MODE:
                     try:
+                        # Обновляем статус платежа
+                        await PaymentCRUD.update_status(
+                            session=db.session,
+                            payment_id=payment_id,
+                            status="completed"
+                        )
+
+                        # Активируем подписку пользователя
                         user = await UserCRUD.get_by_telegram_id(db.session, callback.from_user.id)
                         if user:
                             # Устанавливаем дату окончания подписки
@@ -573,10 +595,22 @@ async def check_payment_callback(callback: CallbackQuery, state: FSMContext, db=
                             user.subscription_status = "active"
                             await db.session.commit()
 
+                            # Обновляем подписку в таблице subscriptions
+                            await SubscriptionCRUD.create_or_update(
+                                session=db.session,
+                                user_id=user.id,
+                                tariff=tariff_key,
+                                expires_at=user.subscription_until,
+                                payment_id=payment_id,
+                                is_active=True
+                            )
+
                             text += f"🎉 *Подписка активирована!*\n"
                             text += f"📅 Тариф: {tariff['label']}\n"
                             text += f"⏳ Действует до: {user.subscription_until.strftime('%d.%m.%Y')}\n\n"
                             text += "Спасибо за покупку!"
+
+                            logger.info(f"✅ Подписка активирована для пользователя {callback.from_user.id}")
                         else:
                             text += "❌ Пользователь не найден в БД."
                     except Exception as e:
@@ -663,9 +697,17 @@ async def check_payment_status_handler(message: Message, state: FSMContext, db=N
             if tariff_key and tariff_key in TARIFFS:
                 tariff = TARIFFS[tariff_key]
 
-                # Активируем подписку
+                # ===== АКТИВИРУЕМ ПОДПИСКУ В БД =====
                 if db and not TEST_MODE:
                     try:
+                        # Обновляем статус платежа
+                        await PaymentCRUD.update_status(
+                            session=db.session,
+                            payment_id=payment_id,
+                            status="completed"
+                        )
+
+                        # Активируем подписку пользователя
                         user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
                         if user:
                             # Устанавливаем дату окончания подписки
@@ -679,10 +721,22 @@ async def check_payment_status_handler(message: Message, state: FSMContext, db=N
                             user.subscription_status = "active"
                             await db.session.commit()
 
+                            # Обновляем подписку в таблице subscriptions
+                            await SubscriptionCRUD.create_or_update(
+                                session=db.session,
+                                user_id=user.id,
+                                tariff=tariff_key,
+                                expires_at=user.subscription_until,
+                                payment_id=payment_id,
+                                is_active=True
+                            )
+
                             text += f"🎉 *Подписка активирована!*\n"
                             text += f"📅 Тариф: {tariff['label']}\n"
                             text += f"⏳ Действует до: {user.subscription_until.strftime('%d.%m.%Y')}\n\n"
                             text += "Спасибо за покупку!"
+
+                            logger.info(f"✅ Подписка активирована для пользователя {message.from_user.id}")
                         else:
                             text += "❌ Пользователь не найден в БД."
                     except Exception as e:
@@ -782,6 +836,29 @@ async def show_payment_history_handler(message: Message, db=None):
         )
         return
 
+    # Если есть БД, показываем историю платежей пользователя
+    try:
+        payments = await PaymentCRUD.get_user_payments(db.session, message.from_user.id)
+        if not payments:
+            await message.answer(
+                "📭 У вас пока нет платежей.",
+                reply_markup=Navigation.get_main_menu()
+            )
+            return
+
+        text = "📊 *История платежей*\n\n"
+        for p in payments:
+            status_emoji = "✅" if p.status == "completed" else "⏳" if p.status == "pending" else "❌"
+            text += f"{status_emoji} {p.created_at.strftime('%d.%m.%Y')}: {p.amount / 100} ₽ ({p.period})\n"
+
+        await message.answer(text, parse_mode="HTML", reply_markup=Navigation.get_main_menu())
+    except Exception as e:
+        logger.error(f"Ошибка получения истории платежей: {e}")
+        await message.answer(
+            "❌ Ошибка получения истории.",
+            reply_markup=Navigation.get_main_menu()
+        )
+
 
 @router.callback_query(F.data == "cancel_payment")
 async def cancel_payment_callback(callback: CallbackQuery, state: FSMContext, db=None):
@@ -802,10 +879,7 @@ async def premium_info_callback(callback: CallbackQuery):
         "💎 *Что входит в премиум*\n\n"
         "• 📸 Анализ фото еды с помощью ИИ\n"
         "• 🏋️‍♂️ Персональные тренировки\n"
-        "• 📊 Расширенная статистика прогресса\n"
-        "• 🥗 Индивидуальные рекомендации по питанию\n"
-        "• ♾️ Безлимитное количество запросов\n"
-        "• ⚡ Приоритетная поддержка 24/7\n\n"
+        "• 📊 Расширенная статистика\n\n"
         "Выберите тариф:",
         parse_mode="HTML",
         reply_markup=Navigation.get_premium_inline_menu()
@@ -820,9 +894,7 @@ async def premium_features_info_handler(message: Message, db=None):
         "💎 *Премиум функции*\n\n"
         "• 📸 Анализ фото еды с помощью ИИ\n"
         "• 🏋️‍♂️ Персональные тренировки\n"
-        "• 📊 Расширенная статистика\n"
-        "• 🥗 Индивидуальные рекомендации\n"
-        "• ♾️ Безлимитные запросы\n\n"
+        "• 📊 Расширенная статистика\n\n"
         "👉 Оформите подписку: /subscribe"
     )
     await message.answer(

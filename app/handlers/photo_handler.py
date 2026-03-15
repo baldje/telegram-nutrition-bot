@@ -87,9 +87,58 @@ async def handle_food_text_priority(message: Message, state: FSMContext):
 
     if is_food_description:
         logger.info(f"🍽 ПРИОРИТЕТНЫЙ ОБРАБОТЧИК: текст от {message.from_user.id}: '{message.text}'")
+        
+        # ОТПРАВЛЯЕМ АНАЛИЗ НАПРЯМУЮ
+        from app.utils.openai_photo_analyzer import estimate_calories_from_text
+        
+        wait_msg = await message.answer("🔍 **Анализирую описание...**")
+        
+        try:
+            analysis = await estimate_calories_from_text(message.text)
+            await wait_msg.delete()
+            
+            if "error" in analysis:
+                await message.answer(
+                    "❌ **Не удалось оценить калории**\n\n"
+                    "Попробуй сформулировать иначе, например:\n"
+                    "• *\"Съел тарелку борща со сметаной\"*\n"
+                    "• *\"Выпил стакан молока 3.2%\"*\n"
+                    "• *\"Перекусил яблоком и бананом\"*",
+                    parse_mode="HTML"
+                )
+                return
+            
+            response = f"""📝 **Анализ питания**
 
-        # Вызываем основную функцию анализа текста
-        await handle_food_text(message, state)
+🍽️ **Что съедено:** {message.text}
+
+⚖️ **Примерная пищевая ценность:**
+• 🔥 Калории: **{analysis.get('estimated_calories', '?')}** ккал
+• 🥩 Белки: **{analysis.get('protein_grams', '?')}** г
+• 🧈 Жиры: **{analysis.get('fat_grams', '?')}** г
+• 🍚 Углеводы: **{analysis.get('carbs_grams', '?')}** г
+
+📏 **Размер порции:** ~{analysis.get('serving_size_grams', '?')} г
+
+💡 *Оценка основана на типичных значениях. Для точного анализа отправьте фото.*"""
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="📸 Анализ по фото", callback_data="start_photo_analysis")
+                ]
+            ])
+            
+            await message.answer(response, reply_markup=keyboard, parse_mode="HTML")
+            logger.info(f"✅ Текстовый анализ для пользователя {message.from_user.id} - ответ отправлен")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка анализа текста: {e}")
+            await wait_msg.delete()
+            await message.answer(
+                "❌ Не удалось проанализировать описание.\n"
+                "Попробуй сформулировать иначе или отправь фото."
+            )
+        
         return  # Важно! Не передаем управление дальше
 
     # Если не похоже на еду - пропускаем, пусть другие обработчики работают
@@ -152,8 +201,8 @@ async def handle_text_in_waiting_photo(message: Message, state: FSMContext):
         # Если похоже на еду - перенаправляем в текстовый анализ
         logger.info(f"🔄 Перенаправляем текст на анализ еды: {message.text}")
         await state.clear()
-        # Вызываем анализ текста
-        await handle_food_text(message, state)
+        # Вызываем анализ текста через приоритетный обработчик
+        await handle_food_text_priority(message, state)
     else:
         # Если не похоже на еду - напоминаем про фото
         await message.answer(
@@ -277,16 +326,10 @@ async def handle_food_photo(message: Message, state: FSMContext):
         # Собираем ответ
         response = "\n".join(response_parts)
 
-        # ===== КНОПКИ ВРЕМЕННО ЗАКОММЕНТИРОВАНЫ =====
-        # Функционал "Сохранить в дневник" и "Моя статистика" пока не реализован
+        # КНОПКИ
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                # InlineKeyboardButton(text="💾 Сохранить в дневник", callback_data="save_analysis"),
-                # InlineKeyboardButton(text="📊 Моя статистика", callback_data="show_stats")
-            ],
-            [
                 InlineKeyboardButton(text="🔄 Новый анализ", callback_data="new_analysis"),
-                # InlineKeyboardButton(text="❓ Помощь", callback_data="help_food")
             ]
         ])
 
@@ -323,93 +366,13 @@ async def handle_food_photo(message: Message, state: FSMContext):
         )
 
 
+# ========== Этот обработчик больше не используется напрямую, 
+# ========== но оставляем для обратной совместимости
 @photo_router.message(F.text & ~F.command)
-async def handle_food_text(message: Message, state: FSMContext):
-    """Анализ еды по текстовому описанию"""
-
-    # Проверяем состояние - если онбординг, пропускаем
-    current_state = await state.get_state()
-    if current_state and current_state.startswith("OnboardingStates"):
-        return
-
-    from app.utils.openai_photo_analyzer import estimate_calories_from_text
-
-    text = message.text.strip()
-
-    # Пропускаем короткие сообщения
-    if len(text) < 3:
-        return
-
-    # Ключевые слова, указывающие на еду
-    food_keywords = [
-        "ел", "съел", "ем", "кушал", "поел", "отведал",
-        "завтрак", "обед", "ужин", "перекус", "ланч",
-        "пицца", "бургер", "салат", "суп", "стейк", "омлет",
-        "каша", "макароны", "гречка", "рис", "плов",
-        "курица", "рыба", "мясо", "свинина", "говядина",
-        "яблоко", "банан", "апельсин", "фрукт", "овощ",
-        "кофе", "чай", "сок", "вода", "молоко", "кефир",
-        "шоколад", "печенье", "торт", "десерт", "мороженое"
-    ]
-
-    # Если не похоже на еду - просто пропускаем
-    if not any(keyword in text.lower() for keyword in food_keywords):
-        return
-
-    # Отправляем подтверждение
-    wait_msg = await message.answer("🔍 **Анализирую описание...**", parse_mode="HTML")
-
-    try:
-        analysis = await estimate_calories_from_text(text)
-
-        if "error" in analysis:
-            await wait_msg.delete()
-            await message.answer(
-                "❌ **Не удалось оценить калории**\n\n"
-                "Попробуй сформулировать иначе, например:\n"
-                "• *\"Съел тарелку борща со сметаной\"*\n"
-                "• *\"Выпил стакан молока 3.2%\"*\n"
-                "• *\"Перекусил яблоком и бананом\"*",
-                parse_mode="HTML"
-            )
-            return
-
-        await wait_msg.delete()
-
-        # Формируем красивый ответ
-        response = f"""📝 **Анализ питания**
-
-🍽️ **Что съедено:** {text}
-
-⚖️ **Примерная пищевая ценность:**
-• 🔥 Калории: **{analysis.get('estimated_calories', '?')}** ккал
-• 🥩 Белки: **{analysis.get('protein_grams', '?')}** г
-• 🧈 Жиры: **{analysis.get('fat_grams', '?')}** г
-• 🍚 Углеводы: **{analysis.get('carbs_grams', '?')}** г
-
-📏 **Размер порции:** ~{analysis.get('serving_size_grams', '?')} г
-
-💡 *Оценка основана на типичных значениях. Для точного анализа отправьте фото.*"""
-
-        # ===== КНОПКИ ВРЕМЕННО ЗАКОММЕНТИРОВАНЫ =====
-        # Функционал "Сохранить" пока не реализован
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                # InlineKeyboardButton(text="💾 Сохранить", callback_data="save_text_analysis"),
-                InlineKeyboardButton(text="📸 Анализ по фото", callback_data="start_photo_analysis")
-            ]
-        ])
-
-        await message.answer(response, reply_markup=keyboard, parse_mode="HTML")
-        logger.info(f"✅ Текстовый анализ для пользователя {message.from_user.id}")
-
-    except Exception as e:
-        logger.error(f"❌ Ошибка анализа текста: {e}")
-        await wait_msg.delete()
-        await message.answer(
-            "❌ Не удалось проанализировать описание.\n"
-            "Попробуй сформулировать иначе или отправь фото."
-        )
+async def handle_food_text_legacy(message: Message, state: FSMContext):
+    """Анализ еды по текстовому описанию (legacy)"""
+    # Перенаправляем в приоритетный обработчик
+    await handle_food_text_priority(message, state)
 
 
 @photo_router.callback_query(F.data == "new_analysis")

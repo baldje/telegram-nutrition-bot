@@ -56,12 +56,12 @@ class Navigation:
         """Inline меню для премиум с учетом скидки"""
         builder = InlineKeyboardBuilder()
 
-        # # Тестовый тариф (всегда показываем)
-        # builder.row(
+        # Тестовый тариф (всегда показываем)
+        #builder.row(
         #     InlineKeyboardButton(text="🧪 Тестовый доступ 7 дней - 1 ₽",
         #                          callback_data="tariff_test_week"),
         #     width=1
-        # )
+        #)
 
         # Расчет цен со скидкой для остальных тарифов
         month_price = 299

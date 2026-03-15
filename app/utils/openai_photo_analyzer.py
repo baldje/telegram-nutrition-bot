@@ -1,4 +1,4 @@
-# app/utils/openai_food_analyzer.py — АНАЛИЗ ФОТО ЕДЫ ЧЕРЕЗ OPENAI
+# app/utils/openai_photo_analyzer.py — АНАЛИЗ ФОТО ЕДЫ ЧЕРЕЗ OPENAI
 import logging
 import os
 import base64
@@ -17,11 +17,16 @@ def _get_api_key() -> Optional[str]:
     try:
         from app.utils.config import config
         if hasattr(config, 'openai') and hasattr(config.openai, 'api_key'):
-            return config.openai.api_key
-    except Exception:
-        pass
+            key = config.openai.api_key
+            logger.info(f"🔑 API ключ из config: {'найден' if key else 'не найден'}")
+            return key
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения ключа из config: {e}")
 
-    return os.getenv("OPENAI_API_KEY")
+    # Пробуем из переменных окружения
+    key = os.getenv("OPENAI_API_KEY")
+    logger.info(f"🔑 API ключ из env: {'найден' if key else 'не найден'}")
+    return key
 
 
 def _get_model() -> str:
@@ -29,23 +34,32 @@ def _get_model() -> str:
     try:
         from app.utils.config import config
         if hasattr(config, 'openai') and hasattr(config.openai, 'model'):
-            return config.openai.model
+            model = config.openai.model
+            logger.info(f"🤖 Модель из config: {model}")
+            return model
     except Exception:
         pass
 
-    return os.getenv("OPENAI_MODEL", "gpt-5-nano")
+    model = os.getenv("OPENAI_MODEL", "gpt-5-nano")  # ✅ ВОЗВРАЩАЕМ gpt-5-nano
+    logger.info(f"🤖 Модель из env: {model}")
+    return model
 
 
 def get_client():
     """Ленивое получение OpenAI клиента"""
     global _client, _MODEL
 
+    logger.info("🔍 get_client() вызван")
+    
     if _client is not None:
+        logger.info("✅ Возвращаем существующий клиент")
         return _client
 
     api_key = _get_api_key()
+    logger.info(f"🔑 Получен API ключ: {'✅ есть' if api_key else '❌ нет'}")
+    
     if not api_key:
-        logger.warning("⚠️ OPENAI_API_KEY не найден")
+        logger.error("❌ OPENAI_API_KEY не найден")
         return None
 
     try:
@@ -54,9 +68,15 @@ def get_client():
         _client = AsyncOpenAI(api_key=api_key)
         _MODEL = _get_model()
 
-        logger.info(f"✅ OpenAI клиент инициализирован (модель: {_MODEL})")
+        logger.info(f"✅ OpenAI клиент успешно инициализирован (модель: {_MODEL})")
+        
+        # Проверим что клиент работает
+        logger.info("🔄 Проверяем подключение к OpenAI...")
         return _client
 
+    except ImportError as e:
+        logger.error(f"❌ Ошибка импорта OpenAI: {e}")
+        return None
     except Exception as e:
         logger.error(f"❌ Ошибка инициализации OpenAI: {e}")
         return None
@@ -69,6 +89,8 @@ async def analyze_food_photo(image_bytes: bytes) -> Optional[Dict[str, Any]]:
     Returns:
         analysis dict или None
     """
+    logger.info("📸 analyze_food_photo вызван")
+    
     client = get_client()
     if not client:
         logger.error("❌ OpenAI клиент не инициализирован")
@@ -109,6 +131,7 @@ async def analyze_food_photo(image_bytes: bytes) -> Optional[Dict[str, Any]]:
 
     try:
         base64_image = base64.b64encode(image_bytes).decode("utf-8")
+        logger.info(f"📸 Изображение закодировано, размер base64: {len(base64_image)}")
 
         messages = [
             {
@@ -130,12 +153,15 @@ async def analyze_food_photo(image_bytes: bytes) -> Optional[Dict[str, Any]]:
             "messages": messages,
         }
 
-        logger.info("📸 Отправляем фото еды в OpenAI...")
+        logger.info(f"📤 Отправляем запрос к OpenAI Vision (модель: {_MODEL})...")
 
         try:
             response = await client.chat.completions.create(**params)
+            logger.info("✅ Запрос к OpenAI Vision успешен")
         except Exception as e:
             error_str = str(e)
+            logger.error(f"❌ Ошибка при запросе к OpenAI: {error_str}")
+            
             if "max_completion_tokens" in error_str:
                 logger.info("🔄 Повтор с max_completion_tokens=900")
                 params["max_completion_tokens"] = 900
@@ -148,39 +174,45 @@ async def analyze_food_photo(image_bytes: bytes) -> Optional[Dict[str, Any]]:
                 raise e
 
         result_text = response.choices[0].message.content.strip()
+        logger.info(f"📥 Получен ответ от OpenAI, длина: {len(result_text)}")
 
         # Убираем markdown-обертки
         if result_text.startswith("```"):
             result_text = result_text.split("```")[1]
         if result_text.endswith("```"):
             result_text = result_text.rsplit("```", 1)[0]
+        
+        result_text = result_text.strip()
+        logger.info(f"📄 Ответ после очистки: {result_text[:200]}...")
 
         result_json = json.loads(result_text)
-
-        logger.info("✅ Фото еды успешно проанализировано")
+        logger.info("✅ JSON успешно распарсен")
 
         return result_json.get("analysis")
 
     except json.JSONDecodeError as e:
         logger.error(f"❌ Ошибка парсинга JSON от OpenAI: {e}")
-        logger.debug(f"Ответ: {result_text[:300]}")
+        logger.debug(f"❌ Проблемный JSON: {result_text[:500]}")
         return None
 
     except Exception as e:
-        logger.error(f"❌ Ошибка анализа фото еды: {e}")
+        logger.error(f"❌ Ошибка анализа фото еды: {e}", exc_info=True)
         return None
 
 
 async def estimate_calories_from_text(food_description: str) -> Dict[str, Any]:
     """Оценка калорий по текстовому описанию"""
+    logger.info(f"📝 estimate_calories_from_text вызван для текста: '{food_description[:50]}...'")
+    
     client = get_client()
     if not client:
+        logger.error("❌ estimate_calories_from_text: OpenAI клиент не доступен")
         return {"error": "OpenAI недоступен"}
 
     prompt = f"""Оцени калорийность и БЖУ для блюда:
 "{food_description}"
 
-Верни строго JSON:
+Верни строго JSON без пояснений:
 {{
   "estimated_calories": число,
   "protein_grams": число,
@@ -196,18 +228,40 @@ async def estimate_calories_from_text(food_description: str) -> Dict[str, Any]:
             "messages": [{"role": "user", "content": prompt}],
         }
 
+        logger.info(f"📤 Отправляем текстовый запрос к OpenAI (модель: {_MODEL})...")
+        
         response = await client.chat.completions.create(**params)
+        logger.info("✅ Текстовый запрос к OpenAI успешен")
+        
         result_text = response.choices[0].message.content.strip()
+        logger.info(f"📥 Получен ответ от OpenAI, длина: {len(result_text)}")
+        logger.info(f"📄 Ответ: {result_text[:200]}...")
 
         if result_text.startswith("```"):
             result_text = result_text.split("```")[1]
         if result_text.endswith("```"):
             result_text = result_text.rsplit("```", 1)[0]
+        
+        result_text = result_text.strip()
+        
+        result = json.loads(result_text)
+        logger.info(f"✅ JSON успешно распарсен: {result}")
+        
+        return result
 
-        return json.loads(result_text)
-
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Ошибка парсинга JSON в estimate_calories_from_text: {e}")
+        logger.error(f"❌ Текст ответа: {result_text[:500]}")
+        return {
+            "estimated_calories": 0,
+            "protein_grams": 0,
+            "fat_grams": 0,
+            "carbs_grams": 0,
+            "serving_size_grams": 0,
+            "error": f"JSON parse error: {str(e)}"
+        }
     except Exception as e:
-        logger.error(f"❌ Ошибка оценки калорий по тексту: {e}")
+        logger.error(f"❌ Ошибка оценки калорий по тексту: {e}", exc_info=True)
         return {
             "estimated_calories": 0,
             "protein_grams": 0,
