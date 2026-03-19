@@ -6,6 +6,8 @@ from .payments import router as payments_router
 from .onboarding import onboarding_router
 from .photo_handler import photo_router
 from .main import main_router
+from .food_diary import router as food_diary_router
+
 __all__ = [
     'start_router',
     'onboarding_router',
@@ -13,5 +15,6 @@ __all__ = [
     'payments_router',
     'main_router',
     'legal_router',
-    'referral_router'
+    'referral_router',
+    'food_diary_router'
 ]

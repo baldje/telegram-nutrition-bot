@@ -1,8 +1,9 @@
 # app/database/models.py
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text, BigInteger
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text, BigInteger, Date
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base  # Base из __init__.py
+from enum import Enum
 
 
 class User(Base):
@@ -59,6 +60,8 @@ class User(Base):
     payments = relationship('Payment', back_populates='user')
     trainings = relationship('UserTraining', back_populates='user')
     consent_history = relationship('UserConsent', back_populates='user', cascade="all, delete-orphan")
+    food_entries = relationship('FoodDiary', back_populates='user', cascade="all, delete-orphan")
+    daily_summaries = relationship('DailySummary', back_populates='user', cascade="all, delete-orphan")
 
 
 class UserConsent(Base):
@@ -124,3 +127,69 @@ class Subscription(Base):
     # Связи
     user = relationship('User', backref='subscriptions')
     payment = relationship('Payment', backref='subscription')
+
+
+class MealType(str, Enum):
+    """Типы приемов пищи"""
+    BREAKFAST = "breakfast"
+    LUNCH = "lunch"
+    DINNER = "dinner"
+    SNACK = "snack"
+
+
+class FoodDiary(Base):
+    """Дневник питания - записи о приемах пищи"""
+    __tablename__ = 'food_diary'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    meal_type = Column(String(20), nullable=False)  # breakfast, lunch, dinner, snack
+    meal_date = Column(DateTime, default=datetime.utcnow)
+
+    # Что съел (текстовое описание)
+    description = Column(Text, nullable=False)
+
+    # Анализ от OpenAI
+    calories = Column(Integer)  # общие калории
+    protein = Column(Float)  # белки в граммах
+    fat = Column(Float)  # жиры в граммах
+    carbs = Column(Float)  # углеводы в граммах
+
+    # Связь с фото (если было)
+    photo_file_id = Column(String(255), nullable=True)
+
+    # Метаданные
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Связи
+    user = relationship("User", back_populates="food_entries")
+
+
+class DailySummary(Base):
+    """Ежедневная сводка по питанию"""
+    __tablename__ = 'daily_summaries'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    summary_date = Column(Date, nullable=False)
+
+    # Суммарные показатели за день
+    total_calories = Column(Integer, default=0)
+    total_protein = Column(Float, default=0)
+    total_fat = Column(Float, default=0)
+    total_carbs = Column(Float, default=0)
+
+    # Количество приемов пищи
+    meals_count = Column(Integer, default=0)
+
+    # Завершен ли день (можно ли редактировать)
+    is_completed = Column(Boolean, default=False)
+
+    # Заметки на день
+    notes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="daily_summaries")

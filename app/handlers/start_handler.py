@@ -310,26 +310,27 @@ async def support(message: Message):
     )
 
 
-@start_router.message(F.text == "📸 Анализ фото")
-async def analyze_photo_button(message: Message, state: FSMContext):
-    """Кнопка анализа фото"""
-    from app.handlers.photo_handler import cmd_analyze
-    await cmd_analyze(message, state)
+# ⚠️ ЗАКОММЕНТИРОВАНО - теперь эти функции обрабатываются в photo_handler.py
+# @start_router.message(F.text == "📸 Анализ фото")
+# async def analyze_photo_button(message: Message, state: FSMContext):
+#     """Кнопка анализа фото"""
+#     from app.handlers.photo_handler import cmd_analyze
+#     await cmd_analyze(message, state)
 
 
-@start_router.message(F.text == "📝 Описать еду")
-async def describe_food_button(message: Message):
-    """Кнопка описания еды"""
-    await message.answer(
-        "📝 *Опиши, что ты съел*\n\n"
-        "Например:\n"
-        "• 'Съел тарелку борща со сметаной'\n"
-        "• 'Выпил стакан молока 3.2%'\n"
-        "• 'Перекусил яблоком'\n\n"
-        "Я оценю калорийность и БЖУ.",
-        parse_mode="HTML",
-        reply_markup=Navigation.get_cancel_keyboard()
-    )
+# @start_router.message(F.text == "📝 Описать еду")
+# async def describe_food_button(message: Message):
+#     """Кнопка описания еды"""
+#     await message.answer(
+#         "📝 *Опиши, что ты съел*\n\n"
+#         "Например:\n"
+#         "• 'Съел тарелку борща со сметаной'\n"
+#         "• 'Выпил стакан молока 3.2%'\n"
+#         "• 'Перекусил яблоком'\n\n"
+#         "Я оценю калорийность и БЖУ.",
+#         parse_mode="HTML",
+#         reply_markup=Navigation.get_cancel_keyboard()
+#     )
 
 
 @start_router.message(Command("cancel"))

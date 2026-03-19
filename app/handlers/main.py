@@ -48,8 +48,17 @@ async def show_trial_day(message: Message, user):
         )
 
 
-# ===== УДАЛЕНО: Обработчик для кнопки оплаты со скидкой из главного меню =====
-
+# # ===== ОБРАБОТЧИК ДЛЯ ДНЕВНИКА ПИТАНИЯ =====
+#
+# @main_router.message(F.text == "📔 Дневник питания")
+# async def food_diary_button(message: Message, state: FSMContext):
+#     """Обработка кнопки дневника питания"""
+#     logger.info(f"📔 Нажата кнопка дневника питания пользователем {message.from_user.id}")
+#
+#     # Импортируем функцию здесь, чтобы избежать циклических импортов
+#     from app.handlers.food_diary import show_food_diary_menu
+#     await show_food_diary_menu(message, state)
+#
 
 # ===== ОБРАБОТЧИК ДЛЯ ВОЗВРАТА В ГЛАВНОЕ МЕНЮ =====
 

@@ -18,18 +18,22 @@ class Navigation:
 
         builder.row(
             KeyboardButton(text="🍽 Питание"),
+            KeyboardButton(text="📔 Дневник питания"),
+            width=2
+        )
+        builder.row(
             KeyboardButton(text="💎 Премиум"),
-            width=2
-        )
-        builder.row(
             KeyboardButton(text="🎁 Рефералка"),
-            KeyboardButton(text="💰 Моя скидка"),
             width=2
         )
         builder.row(
+            KeyboardButton(text="💰 Моя скидка"),
             KeyboardButton(text="❓ Помощь"),
-            KeyboardButton(text="🔐 Документы"),
             width=2
+        )
+        builder.row(
+            KeyboardButton(text="🔐 Документы"),
+            width=1
         )
 
         return builder.as_markup(resize_keyboard=True)
@@ -52,16 +56,91 @@ class Navigation:
         return builder.as_markup(resize_keyboard=True)
 
     @staticmethod
+    def get_food_diary_menu() -> ReplyKeyboardMarkup:
+        """Меню дневника питания"""
+        builder = ReplyKeyboardBuilder()
+        builder.row(
+            KeyboardButton(text="🌅 Завтрак"),
+            KeyboardButton(text="☀️ Обед"),
+            width=2
+        )
+        builder.row(
+            KeyboardButton(text="🌙 Ужин"),
+            KeyboardButton(text="🍎 Перекус"),
+            width=2
+        )
+        builder.row(
+            KeyboardButton(text="📊 Сегодня"),
+            KeyboardButton(text="📅 Неделя"),
+            width=2
+        )
+        builder.row(
+            KeyboardButton(text="📊 Моя норма"),
+            KeyboardButton(text="📊 Прогресс дня"),
+            width=2
+        )
+        builder.row(
+            KeyboardButton(text="🔙 В главное меню"),
+            width=1
+        )
+        return builder.as_markup(resize_keyboard=True)
+
+    @staticmethod
+    def get_meal_type_keyboard() -> ReplyKeyboardMarkup:
+        """Клавиатура для выбора типа приема пищи при анализе"""
+        builder = ReplyKeyboardBuilder()
+        builder.row(
+            KeyboardButton(text="🌅 Завтрак"),
+            KeyboardButton(text="☀️ Обед"),
+            width=2
+        )
+        builder.row(
+            KeyboardButton(text="🌙 Ужин"),
+            KeyboardButton(text="🍎 Перекус"),
+            width=2
+        )
+        builder.row(
+            KeyboardButton(text="🔙 В главное меню"),
+            width=1
+        )
+        return builder.as_markup(resize_keyboard=True)
+
+    @staticmethod
+    def get_meal_confirmation_keyboard() -> InlineKeyboardMarkup:
+        """Кнопки подтверждения записи"""
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            InlineKeyboardButton(text="✅ Сохранить", callback_data="save_meal"),
+            InlineKeyboardButton(text="🔄 Исправить", callback_data="edit_meal"),
+            width=2
+        )
+        builder.row(
+            InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_meal"),
+            width=1
+        )
+        return builder.as_markup()
+
+    @staticmethod
+    def get_daily_summary_keyboard() -> InlineKeyboardMarkup:
+        """Кнопки для дневной сводки"""
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            InlineKeyboardButton(text="📝 Добавить запись", callback_data="add_meal"),
+            InlineKeyboardButton(text="📊 Статистика", callback_data="meal_stats"),
+            width=2
+        )
+        builder.row(
+            InlineKeyboardButton(text="◀️ Вчера", callback_data="prev_day"),
+            InlineKeyboardButton(text="Сегодня", callback_data="today"),
+            InlineKeyboardButton(text="▶️ Завтра", callback_data="next_day"),
+            width=3
+        )
+        return builder.as_markup()
+
+    @staticmethod
     def get_premium_inline_menu(discount: int = 0) -> InlineKeyboardMarkup:
         """Inline меню для премиум с учетом скидки"""
         builder = InlineKeyboardBuilder()
-
-        # Тестовый тариф (всегда показываем)
-        #builder.row(
-        #     InlineKeyboardButton(text="🧪 Тестовый доступ 7 дней - 1 ₽",
-        #                          callback_data="tariff_test_week"),
-        #     width=1
-        #)
 
         # Расчет цен со скидкой для остальных тарифов
         month_price = 299

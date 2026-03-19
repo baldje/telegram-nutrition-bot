@@ -1,12 +1,15 @@
 from sqlalchemy.future import select
 from sqlalchemy import and_, update
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import uuid
 import logging
 
 logger = logging.getLogger(__name__)
 
-from app.database.models import User, Payment, UserTraining, Subscription, UserConsent
+from app.database.models import (
+    User, Payment, UserTraining, Subscription, UserConsent,
+    FoodDiary, DailySummary  # 👈 ДОБАВЛЕНЫ FoodDiary и DailySummary
+)
 
 
 class UserCRUD:
@@ -53,8 +56,6 @@ class UserCRUD:
             await UserCRUD.process_referral(session, referral_code, user.id)
 
         return user
-
-    # app/database/crud.py - только обновленный метод process_referral
 
     @staticmethod
     async def process_referral(session, referral_code: str, new_user_id: int):
@@ -141,6 +142,7 @@ class UserCRUD:
             logger.debug(f"Нет изменений для пользователя {user_tg_id}")
 
         return user
+
     @staticmethod
     async def activate_subscription(session, user: User, period: str, discount: int = 0):
         """Активация подписки пользователя с учетом скидки"""
@@ -229,7 +231,7 @@ class UserCRUD:
             return True
         return False
 
-    # ===== НОВЫЕ МЕТОДЫ ДЛЯ ЮРИДИЧЕСКОЙ ЧАСТИ =====
+    # ===== МЕТОДЫ ДЛЯ ЮРИДИЧЕСКОЙ ЧАСТИ =====
 
     @staticmethod
     async def check_consent(session, telegram_id: int) -> bool:
@@ -364,3 +366,268 @@ class TrainingCRUD:
         session.add(training)
         await session.commit()
         return training
+
+
+class FoodDiaryCRUD:
+    """CRUD операции для дневника питания"""
+
+    @staticmethod
+    async def add_entry(session, user_id: int, meal_type: str, description: str,
+                        analysis: dict, photo_file_id: str = None):
+        """Добавить запись о приеме пищи"""
+        entry = FoodDiary(
+            user_id=user_id,
+            meal_type=meal_type,
+            description=description,
+            calories=analysis.get('estimated_calories'),
+            protein=analysis.get('protein_grams'),
+            fat=analysis.get('fat_grams'),
+            carbs=analysis.get('carbs_grams'),
+            photo_file_id=photo_file_id
+        )
+        session.add(entry)
+        await session.commit()
+        await session.refresh(entry)
+
+        # Обновить или создать дневную сводку
+        await FoodDiaryCRUD.update_daily_summary(session, user_id, entry.meal_date)
+
+        return entry
+
+    @staticmethod
+    async def get_day_entries(session, user_id: int, date: datetime.date):
+        """Получить все записи за день"""
+        start_of_day = datetime.combine(date, datetime.min.time())
+        end_of_day = datetime.combine(date, datetime.max.time())
+
+        result = await session.execute(
+            select(FoodDiary)
+            .where(FoodDiary.user_id == user_id)
+            .where(FoodDiary.meal_date >= start_of_day)
+            .where(FoodDiary.meal_date <= end_of_day)
+            .order_by(FoodDiary.meal_date)
+        )
+        return result.scalars().all()
+
+    @staticmethod
+    async def get_week_entries(session, user_id: int):
+        """Получить записи за последние 7 дней"""
+        week_ago = datetime.utcnow() - timedelta(days=7)
+
+        result = await session.execute(
+            select(FoodDiary)
+            .where(FoodDiary.user_id == user_id)
+            .where(FoodDiary.meal_date >= week_ago)
+            .order_by(FoodDiary.meal_date.desc())
+        )
+        return result.scalars().all()
+
+    @staticmethod
+    async def update_daily_summary(session, user_id: int, date: datetime):
+        """Обновить дневную сводку"""
+        date_only = date.date()
+        entries = await FoodDiaryCRUD.get_day_entries(session, user_id, date_only)
+
+        # Рассчитываем суммы
+        total_calories = sum(e.calories or 0 for e in entries)
+        total_protein = sum(e.protein or 0 for e in entries)
+        total_fat = sum(e.fat or 0 for e in entries)
+        total_carbs = sum(e.carbs or 0 for e in entries)
+
+        # Ищем существующую сводку
+        result = await session.execute(
+            select(DailySummary)
+            .where(DailySummary.user_id == user_id)
+            .where(DailySummary.summary_date == date_only)
+        )
+        summary = result.scalar_one_or_none()
+
+        if summary:
+            # Обновляем существующую
+            summary.total_calories = total_calories
+            summary.total_protein = total_protein
+            summary.total_fat = total_fat
+            summary.total_carbs = total_carbs
+            summary.meals_count = len(entries)
+        else:
+            # Создаем новую
+            summary = DailySummary(
+                user_id=user_id,
+                summary_date=date_only,
+                total_calories=total_calories,
+                total_protein=total_protein,
+                total_fat=total_fat,
+                total_carbs=total_carbs,
+                meals_count=len(entries)
+            )
+            session.add(summary)
+
+        await session.commit()
+        return summary
+
+
+class NutritionCalculator:
+    """Калькулятор питания на основе данных пользователя"""
+
+    # Коэффициенты активности
+    ACTIVITY_FACTORS = {
+        'low': 1.2,  # Сидячий образ жизни
+        'medium': 1.375,  # Умеренная активность
+        'high': 1.55,  # Высокая активность
+        'very_high': 1.725  # Спортсмены
+    }
+
+    # Коэффициенты для целей
+    GOAL_FACTORS = {
+        'похудение': {
+            'calories': 0.85,  # -15% от нормы
+            'protein': 1.8,  # г на кг веса
+            'fat': 0.8,  # г на кг веса
+            'carbs': 2.0  # г на кг веса
+        },
+        'набор массы': {
+            'calories': 1.15,  # +15% к норме
+            'protein': 2.0,
+            'fat': 1.0,
+            'carbs': 3.5
+        },
+        'поддержание': {
+            'calories': 1.0,
+            'protein': 1.6,
+            'fat': 0.9,
+            'carbs': 2.5
+        },
+        'рельеф': {
+            'calories': 0.9,  # -10% от нормы
+            'protein': 2.2,  # Больше белка
+            'fat': 0.7,
+            'carbs': 2.2
+        },
+        'здоровье': {
+            'calories': 1.0,
+            'protein': 1.6,
+            'fat': 0.9,
+            'carbs': 2.5
+        }
+    }
+
+    # Распределение калорий по приемам пищи (%)
+    MEAL_DISTRIBUTION = {
+        'breakfast': 0.25,  # 25% - завтрак
+        'lunch': 0.35,  # 35% - обед
+        'dinner': 0.30,  # 30% - ужин
+        'snack': 0.10  # 10% - перекусы
+    }
+
+    @staticmethod
+    def calculate_bmr(user) -> float:
+        """
+        Расчет базового метаболизма (BMR) по формуле Миффлина-Сан Жеора
+        """
+        weight = user.weight or 70
+        height = user.height or 170
+        age = user.age or 30
+
+        if user.gender == 'мужской':
+            bmr = 10 * weight + 6.25 * height - 5 * age + 5
+        else:
+            bmr = 10 * weight + 6.25 * height - 5 * age - 161
+
+        return bmr
+
+    @staticmethod
+    def calculate_tdee(user) -> float:
+        """
+        Расчет общей суточной потребности в калориях (TDEE)
+        с учетом активности (по умолчанию средняя)
+        """
+        bmr = NutritionCalculator.calculate_bmr(user)
+
+        # По умолчанию средняя активность
+        activity = getattr(user, 'activity_level', 'medium')
+        factor = NutritionCalculator.ACTIVITY_FACTORS.get(activity, 1.375)
+
+        return bmr * factor
+
+    @staticmethod
+    def get_daily_nutrition(user) -> dict:
+        """
+        Расчет суточной нормы КБЖУ с учетом цели
+        """
+        tdee = NutritionCalculator.calculate_tdee(user)
+        goal = user.goal or 'поддержание'
+
+        # Получаем коэффициенты для цели
+        goal_factor = NutritionCalculator.GOAL_FACTORS.get(goal, NutritionCalculator.GOAL_FACTORS['поддержание'])
+
+        # Рассчитываем калории
+        daily_calories = int(tdee * goal_factor['calories'])
+
+        # Рассчитываем БЖУ в граммах
+        weight = user.weight or 70
+
+        protein = int(weight * goal_factor['protein'])
+        fat = int(weight * goal_factor['fat'])
+
+        # Углеводы рассчитываем из оставшихся калорий
+        protein_calories = protein * 4
+        fat_calories = fat * 9
+        remaining_calories = daily_calories - protein_calories - fat_calories
+        carbs = int(remaining_calories / 4)
+
+        # Проверяем минимальные значения
+        protein = max(protein, 50)
+        fat = max(fat, 30)
+        carbs = max(carbs, 100)
+
+        return {
+            'calories': daily_calories,
+            'protein': protein,
+            'fat': fat,
+            'carbs': carbs,
+            'goal': goal,
+            'tdee': int(tdee),
+            'bmr': int(NutritionCalculator.calculate_bmr(user))
+        }
+
+    @staticmethod
+    def get_meal_nutrition(user, meal_type: str) -> dict:
+        """
+        Расчет нормы для конкретного приема пищи
+        """
+        daily = NutritionCalculator.get_daily_nutrition(user)
+        distribution = NutritionCalculator.MEAL_DISTRIBUTION.get(meal_type, 0.25)
+
+        return {
+            'calories': int(daily['calories'] * distribution),
+            'protein': int(daily['protein'] * distribution),
+            'fat': int(daily['fat'] * distribution),
+            'carbs': int(daily['carbs'] * distribution),
+            'meal_type': meal_type,
+            'percentage': int(distribution * 100)
+        }
+
+    @staticmethod
+    def get_remaining_for_day(user, consumed: dict) -> dict:
+        """
+        Расчет оставшихся КБЖУ на день с учетом съеденного
+        """
+        daily = NutritionCalculator.get_daily_nutrition(user)
+
+        return {
+            'calories': max(0, daily['calories'] - consumed.get('calories', 0)),
+            'protein': max(0, daily['protein'] - consumed.get('protein', 0)),
+            'fat': max(0, daily['fat'] - consumed.get('fat', 0)),
+            'carbs': max(0, daily['carbs'] - consumed.get('carbs', 0)),
+            'total_calories': daily['calories'],
+            'total_protein': daily['protein'],
+            'total_fat': daily['fat'],
+            'total_carbs': daily['carbs'],
+            'progress': {
+                'calories': int((consumed.get('calories', 0) / daily['calories']) * 100) if daily[
+                                                                                                'calories'] > 0 else 0,
+                'protein': int((consumed.get('protein', 0) / daily['protein']) * 100) if daily['protein'] > 0 else 0,
+                'fat': int((consumed.get('fat', 0) / daily['fat']) * 100) if daily['fat'] > 0 else 0,
+                'carbs': int((consumed.get('carbs', 0) / daily['carbs']) * 100) if daily['carbs'] > 0 else 0
+            }
+        }
