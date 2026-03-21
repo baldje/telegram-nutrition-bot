@@ -195,77 +195,88 @@ async def show_analysis_result(message: Message, state: FSMContext, meal_display
                     f"{progress_bar(total_carbs, daily['carbs'])} {int((total_carbs / daily['carbs']) * 100)}%\n\n"
                 )
 
-                # ===== ПРЕДУПРЕЖДЕНИЯ =====
+                # ===== ПРЕДУПРЕЖДЕНИЯ И СОВЕТЫ =====
 
-                # Проверка на превышение
+                # 1. ПРОВЕРКА НА ПРЕВЫШЕНИЕ КАЛОРИЙ
                 if total_calories > daily['calories']:
                     over = total_calories - daily['calories']
                     result_text += f"⚠️ *ВНИМАНИЕ!*\n"
                     result_text += f"❌ Вы превысили дневную норму на {over} ккал!\n\n"
 
-                # Проверка на критический остаток
+                    # Поздравления по нутриентам (всегда говорим что норма выполнена)
+                    result_text += f"📊 *Статус нутриентов:*\n"
+                    result_text += f"🥩 Белки: ✅ норма выполнена!\n"
+                    result_text += f"🧈 Жиры: ✅ норма выполнена!\n"
+                    result_text += f"🍚 Углеводы: ✅ норма выполнена!\n"
+
+                    result_text += f"\n💡 *Совет:* Сегодня лучше сделать разгрузочный день или добавить физическую активность\n\n"
+
+                # 2. ПРОВЕРКА НА КРИТИЧЕСКИЙ ОСТАТОК КАЛОРИЙ (осталось < 200)
                 elif remaining_calories < 200:
                     result_text += f"🔔 *Внимание!*\n"
                     result_text += f"⚡ Осталось всего {remaining_calories} ккал на сегодня\n\n"
 
-                # Если все в порядке
+                    # Детальный анализ с советами по легкому перекусу
+                    result_text += f"📊 *Детальный анализ:*\n"
+
+                    # Белки
+                    if total_protein >= daily['protein']:
+                        result_text += f"🥩 Белки: ✅ норма выполнена!\n"
+                    else:
+                        result_text += f"🥩 Белки: нужно еще {remaining_protein:.0f}г\n"
+
+                    # Жиры
+                    if total_fat >= daily['fat']:
+                        result_text += f"🧈 Жиры: ✅ норма выполнена!\n"
+                    else:
+                        result_text += f"🧈 Жиры: нужно еще {remaining_fat:.0f}г\n"
+
+                    # Углеводы
+                    if total_carbs >= daily['carbs']:
+                        result_text += f"🍚 Углеводы: ✅ норма выполнена!\n"
+                    else:
+                        result_text += f"🍚 Углеводы: нужно еще {remaining_carbs:.0f}г\n"
+
+                    result_text += f"\n💡 *Совет:* Добавьте легкий перекус (овощи, кефир, яблоко)\n\n"
+
+                # 3. ВСЁ В НОРМЕ (калории в пределах нормы)
                 else:
                     result_text += f"✅ *Хороший прогресс!*\n"
                     result_text += f"💪 Осталось {remaining_calories} ккал\n\n"
 
-                # Детальный анализ по нутриентам
-                result_text += f"📊 *Детальный анализ:*\n"
+                    # Детальный анализ с советами по добору (если нужно)
+                    result_text += f"📊 *Детальный анализ:*\n"
 
-                # Белки
-                if total_protein > daily['protein']:
-                    over = total_protein - daily['protein']
-                    result_text += f"• 🥩 Белки: превышение на {over:.0f}г\n"
-                elif remaining_protein < 10:
-                    result_text += f"• 🥩 Белки: почти норма, осталось {remaining_protein:.0f}г\n"
-                else:
-                    result_text += f"• 🥩 Белки: нужно еще {remaining_protein:.0f}г\n"
-
-                # Жиры
-                if total_fat > daily['fat']:
-                    over = total_fat - daily['fat']
-                    result_text += f"• 🧈 Жиры: превышение на {over:.0f}г\n"
-                elif remaining_fat < 5:
-                    result_text += f"• 🧈 Жиры: почти норма, осталось {remaining_fat:.0f}г\n"
-                else:
-                    result_text += f"• 🧈 Жиры: нужно еще {remaining_fat:.0f}г\n"
-
-                # Углеводы
-                if total_carbs > daily['carbs']:
-                    over = total_carbs - daily['carbs']
-                    result_text += f"• 🍚 Углеводы: превышение на {over:.0f}г\n"
-                elif remaining_carbs < 20:
-                    result_text += f"• 🍚 Углеводы: почти норма, осталось {remaining_carbs:.0f}г\n"
-                else:
-                    result_text += f"• 🍚 Углеводы: нужно еще {remaining_carbs:.0f}г\n"
-
-                result_text += f"\n"
-
-                # Советы по добору (если нужно)
-                if remaining_calories > 0 and total_calories < daily['calories'] * 0.7:
-                    result_text += f"💡 *Совет по добору:*\n"
-
-                    if remaining_protein > 30:
-                        result_text += f"• Добавьте белка: курица (100г = 30г белка), рыба, яйца, творог\n"
-                    if remaining_carbs > 50:
-                        result_text += f"• Добавьте углеводов: гречка, рис, овсянка, макароны\n"
-                    if remaining_fat > 20:
-                        result_text += f"• Добавьте жиров: орехи, авокадо, оливковое масло\n"
-
-                    if remaining_calories > 300:
-                        result_text += f"• Можно добавить полноценный прием пищи\n"
+                    # Белки
+                    if total_protein >= daily['protein']:
+                        result_text += f"🥩 Белки: ✅ норма выполнена!\n"
                     else:
-                        result_text += f"• Достаточно легкого перекуса\n"
+                        result_text += f"🥩 Белки: нужно еще {remaining_protein:.0f}г\n"
 
-                # Если все хорошо
-                elif remaining_calories < 100:
-                    result_text += f"🎉 *Отлично! Вы почти достигли нормы!*\n"
+                    # Жиры
+                    if total_fat >= daily['fat']:
+                        result_text += f"🧈 Жиры: ✅ норма выполнена!\n"
+                    else:
+                        result_text += f"🧈 Жиры: нужно еще {remaining_fat:.0f}г\n"
 
-                result_text += f"\n"
+                    # Углеводы
+                    if total_carbs >= daily['carbs']:
+                        result_text += f"🍚 Углеводы: ✅ норма выполнена!\n"
+                    else:
+                        result_text += f"🍚 Углеводы: нужно еще {remaining_carbs:.0f}г\n"
+
+                    # Советы по добору (если есть дефицит)
+                    if remaining_protein > 20 or remaining_fat > 15 or remaining_carbs > 50:
+                        result_text += f"\n💡 *Совет по добору:*\n"
+
+                        if remaining_protein > 20:
+                            result_text += f"• Добавьте белка: курица, рыба, яйца, творог\n"
+                        if remaining_carbs > 50:
+                            result_text += f"• Добавьте углеводов: гречка, рис, овсянка, макароны\n"
+                        if remaining_fat > 15:
+                            result_text += f"• Добавьте жиров: орехи, авокадо, оливковое масло\n"
+                    else:
+                        result_text += f"\n🎉 *Отлично! Баланс нутриентов почти идеальный!\n"
 
             else:
                 result_text += f"ℹ️ *Для персонализированных рекомендаций заполните анкету в /start*\n\n"
