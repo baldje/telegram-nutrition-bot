@@ -209,7 +209,7 @@ async def show_analysis_result(message: Message, state: FSMContext, meal_display
                     result_text += f"🧈 Жиры: ✅ норма выполнена!\n"
                     result_text += f"🍚 Углеводы: ✅ норма выполнена!\n"
 
-                    result_text += f"\n💡 *Совет:* Сегодня лучше сделать разгрузочный день или добавить физическую активность\n\n"
+                    # result_text += f"\n💡 *Совет:* Сегодня лучше сделать разгрузочный день или добавить физическую активность\n\n"
 
                 # 2. ПРОВЕРКА НА КРИТИЧЕСКИЙ ОСТАТОК КАЛОРИЙ (осталось < 200)
                 elif remaining_calories < 200:
