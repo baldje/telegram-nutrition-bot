@@ -488,6 +488,8 @@ async def process_training_current(message: Message, state: FSMContext):
 
 
 # ---------- ШАГ 10: ЖЕЛАНИЕ ТРЕНИРОВАТЬСЯ ----------
+# app/handlers/onboarding.py - функция process_training_wants
+
 @onboarding_router.message(StateFilter(OnboardingStates.waiting_training_wants))
 async def process_training_wants(message: Message, state: FSMContext):
     # Проверяем на команды
@@ -530,7 +532,7 @@ async def process_training_wants(message: Message, state: FSMContext):
     if age is None:
         logger.info(f"⚠️ Возраст не указан, используем значение по умолчанию: 30")
 
-    # Рассчитать калории
+    # Рассчитать калории (старый метод, можно оставить)
     try:
         calories = calculate_calories(
             gender=data['gender'],
@@ -543,6 +545,32 @@ async def process_training_wants(message: Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Ошибка расчёта калорий: {e}")
         calories = {'daily': 2000, 'target': 2000, 'maintenance': 2200}
+
+    # ===== НОВОЕ: РАСЧЁТ НОРМЫ КБЖУ ЧЕРЕЗ КАЛЬКУЛЯТОР =====
+    from app.database.crud import NutritionCalculator
+
+    # Определяем уровень активности
+    activity_map = {
+        'низкая': 'low',
+        'средняя': 'medium',
+        'высокая': 'high',
+        'очень высокая': 'very_high'
+    }
+    training_current = data.get('training_current', 'средняя')
+    activity_level = activity_map.get(training_current.lower(), 'medium')
+
+    # Собираем данные пользователя в словарь
+    user_data = {
+        'goal': data.get('goal', 'поддержание'),
+        'gender': data['gender'],
+        'age': age_for_calc,
+        'height': data['height'],
+        'weight': data['weight'],
+        'activity_level': activity_level
+    }
+
+    daily_nutrition = NutritionCalculator.get_daily_nutrition_from_dict(user_data)
+    # ===== КОНЕЦ НОВОГО =====
 
     # Отправляем запрос на генерацию плана питания
     try:
@@ -563,7 +591,7 @@ async def process_training_wants(message: Message, state: FSMContext):
 
     await status_msg.delete()
 
-    # Формируем и отправляем ПЛАН ПИТАНИЯ
+    # Формируем и отправляем ПЛАН ПИТАНИЯ + НОРМУ КБЖУ
     response = f"""
 📊 <b>Твой персональный план</b>
 
@@ -575,6 +603,15 @@ async def process_training_wants(message: Message, state: FSMContext):
 
 ⚖️ <b>Рекомендуемая норма:</b> {calories['daily']} ккал/день
 📈 <b>Для цели:</b> {calories['target']} ккал/день
+
+🥗 <b>Ваша суточная норма КБЖУ:</b>
+• 🔥 Калории: <b>{daily_nutrition['calories']}</b> ккал
+• 🥩 Белки: <b>{daily_nutrition['protein']}</b> г
+• 🧈 Жиры: <b>{daily_nutrition['fat']}</b> г
+• 🍚 Углеводы: <b>{daily_nutrition['carbs']}</b> г
+
+📌 Базальный метаболизм: <b>{daily_nutrition['bmr']}</b> ккал
+📈 С учетом активности: <b>{daily_nutrition['tdee']}</b> ккал
 
 🍽 <b>План питания:</b>
 {meal_plan}

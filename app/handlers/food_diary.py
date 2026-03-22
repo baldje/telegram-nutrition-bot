@@ -118,36 +118,10 @@ async def show_today_history(message: Message, db=None):
 
     entries = await FoodDiaryCRUD.get_day_entries(db.session, user.id, date.today())
 
-    # Получаем норму пользователя, если есть
-    has_norm = all([user.weight, user.height, user.age, user.goal])
-    if has_norm:
-        daily = NutritionCalculator.get_daily_nutrition(user)
-
-        # Суммируем съеденное
-        consumed = {
-            'calories': sum(e.calories or 0 for e in entries),
-            'protein': sum(e.protein or 0 for e in entries),
-            'fat': sum(e.fat or 0 for e in entries),
-            'carbs': sum(e.carbs or 0 for e in entries)
-        }
-
-        # Рассчитываем остаток
-        remaining = NutritionCalculator.get_remaining_for_day(user, consumed)
-
     if not entries:
-        text = "📭 *Сегодня пока нет записей*\n\n"
-        if has_norm:
-            text += f"🎯 *Норма на сегодня:*\n"
-            text += f"• 🔥 {daily['calories']} ккал\n"
-            text += f"• 🥩 {daily['protein']} г белка\n"
-            text += f"• 🧈 {daily['fat']} г жиров\n"
-            text += f"• 🍚 {daily['carbs']} г углеводов\n\n"
-            text += "Добавьте запись через меню Питание!"
-        else:
-            text += "Добавьте запись через меню Питание!"
-
         await message.answer(
-            text,
+            "📭 *Сегодня пока нет записей*\n\n"
+            "Добавьте запись через меню Питание!",
             parse_mode="HTML",
             reply_markup=Navigation.get_food_diary_menu()
         )
@@ -174,48 +148,17 @@ async def show_today_history(message: Message, db=None):
         time_str = entry.meal_date.strftime("%H:%M")
         text += f"{meal_emoji} *{meal_ru}* ({time_str}):\n"
         text += f"  📝 {entry.description[:100]}\n"
-        text += f"  🔥 {entry.calories} ккал | 🥩 {entry.protein:.0f}г | 🧈 {entry.fat:.0f}г | 🍚 {entry.carbs:.0f}г\n\n"
-        total_cal += entry.calories or 0
 
-    text += f"*Всего за день: {total_cal} ккал*\n\n"
+        # Обрабатываем None значения
+        calories_val = entry.calories or 0
+        protein_val = entry.protein or 0
+        fat_val = entry.fat or 0
+        carbs_val = entry.carbs or 0
+        text += f"  🔥 {calories_val} ккал | 🥩 {protein_val:.0f}г | 🧈 {fat_val:.0f}г | 🍚 {carbs_val:.0f}г\n\n"
 
-    # Добавляем предупреждения о норме
-    if has_norm:
-        # Прогресс-бары
-        def progress_bar(current, total, length=10):
-            if total == 0:
-                return "⬜" * length
-            percent = min(int((current / total) * 100), 100)
-            filled = percent // 10
-            return "🟩" * filled + "⬜" * (length - filled)
+        total_cal += calories_val
 
-        text += f"📈 *Прогресс относительно нормы:*\n"
-        text += f"🔥 Калории: {progress_bar(consumed['calories'], daily['calories'])} {int((consumed['calories'] / daily['calories']) * 100)}%\n"
-        text += f"🥩 Белки: {progress_bar(consumed['protein'], daily['protein'])} {int((consumed['protein'] / daily['protein']) * 100)}%\n"
-        text += f"🧈 Жиры: {progress_bar(consumed['fat'], daily['fat'])} {int((consumed['fat'] / daily['fat']) * 100)}%\n"
-        text += f"🍚 Углеводы: {progress_bar(consumed['carbs'], daily['carbs'])} {int((consumed['carbs'] / daily['carbs']) * 100)}%\n\n"
-
-        # Предупреждения
-        if consumed['calories'] > daily['calories']:
-            over = consumed['calories'] - daily['calories']
-            text += f"⚠️ *ВНИМАНИЕ!*\n"
-            text += f"❌ Вы превысили норму калорий на {over} ккал!\n\n"
-        elif remaining['calories'] < 200:
-            text += f"🔔 *Внимание!*\n"
-            text += f"⚡ Осталось всего {remaining['calories']} ккал на сегодня\n\n"
-        else:
-            text += f"✅ *Хороший прогресс!*\n"
-            text += f"💪 Осталось {remaining['calories']} ккал\n\n"
-
-        # Советы по добору
-        if remaining['calories'] > 0 and consumed['calories'] < daily['calories'] * 0.7:
-            text += f"💡 *Совет:* "
-            if remaining['protein'] > 30:
-                text += f"Добавьте белка (курица, рыба, яйца)\n"
-            elif remaining['carbs'] > 50:
-                text += f"Добавьте сложных углеводов (гречка, рис, овсянка)\n"
-            else:
-                text += f"Можно добавить легкий перекус\n"
+    text += f"*Всего за день: {total_cal} ккал*"
 
     await message.answer(
         text,

@@ -631,3 +631,105 @@ class NutritionCalculator:
                 'carbs': int((consumed.get('carbs', 0) / daily['carbs']) * 100) if daily['carbs'] > 0 else 0
             }
         }
+
+    @staticmethod
+    def get_daily_nutrition_from_dict(data: dict) -> dict:
+        """
+        Расчет суточной нормы КБЖУ из словаря с данными пользователя
+        Используется для показа нормы сразу после онбординга
+
+        data: словарь с полями:
+            - goal (str): цель (похудение/набор массы/поддержание/рельеф/здоровье)
+            - gender (str): пол (мужской/женский)
+            - age (int): возраст
+            - height (int): рост в см
+            - weight (float): вес в кг
+            - activity_level (str): активность (low/medium/high/very_high)
+        """
+        # Значения по умолчанию
+        goal = data.get('goal', 'поддержание')
+        gender = data.get('gender', 'женский')
+        age = data.get('age', 30)
+        height = data.get('height', 165)
+        weight = data.get('weight', 60)
+        activity_level = data.get('activity_level', 'medium')
+
+        # Коэффициенты активности
+        activity_factors = {
+            'low': 1.2,
+            'medium': 1.375,
+            'high': 1.55,
+            'very_high': 1.725
+        }
+
+        # 1. Расчёт BMR (базальный метаболизм)
+        if gender == 'мужской':
+            bmr = 10 * weight + 6.25 * height - 5 * age + 5
+        else:
+            bmr = 10 * weight + 6.25 * height - 5 * age - 161
+
+        # 2. Расчёт TDEE с учётом активности
+        factor = activity_factors.get(activity_level, 1.375)
+        tdee = bmr * factor
+
+        # 3. Корректировка под цель
+        goal_factors = {
+            'похудение': {
+                'calories': 0.85,
+                'protein': 1.8,
+                'fat': 0.8,
+                'carbs': 2.0
+            },
+            'набор массы': {
+                'calories': 1.15,
+                'protein': 2.0,
+                'fat': 1.0,
+                'carbs': 3.5
+            },
+            'поддержание': {
+                'calories': 1.0,
+                'protein': 1.6,
+                'fat': 0.9,
+                'carbs': 2.5
+            },
+            'рельеф': {
+                'calories': 0.9,
+                'protein': 2.2,
+                'fat': 0.7,
+                'carbs': 2.2
+            },
+            'здоровье': {
+                'calories': 1.0,
+                'protein': 1.6,
+                'fat': 0.9,
+                'carbs': 2.5
+            }
+        }
+
+        goal_factor = goal_factors.get(goal, goal_factors['поддержание'])
+        daily_calories = int(tdee * goal_factor['calories'])
+
+        # 4. Расчёт БЖУ в граммах
+        protein = int(weight * goal_factor['protein'])
+        fat = int(weight * goal_factor['fat'])
+
+        # Углеводы из остатка калорий
+        protein_calories = protein * 4
+        fat_calories = fat * 9
+        remaining_calories = daily_calories - protein_calories - fat_calories
+        carbs = int(remaining_calories / 4)
+
+        # Минимальные значения
+        protein = max(protein, 50)
+        fat = max(fat, 30)
+        carbs = max(carbs, 100)
+
+        return {
+            'calories': daily_calories,
+            'protein': protein,
+            'fat': fat,
+            'carbs': carbs,
+            'goal': goal,
+            'tdee': int(tdee),
+            'bmr': int(bmr)
+        }
