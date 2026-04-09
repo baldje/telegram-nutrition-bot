@@ -12,8 +12,7 @@ class Navigation:
     """Класс со всеми меню бота"""
 
     @staticmethod
-    def get_main_menu() -> ReplyKeyboardMarkup:
-        """Главное меню"""
+    def get_main_menu(user_role: str = 'user') -> ReplyKeyboardMarkup:
         builder = ReplyKeyboardBuilder()
 
         builder.row(
@@ -26,14 +25,25 @@ class Navigation:
             KeyboardButton(text="🎁 Рефералка"),
             width=2
         )
+
+        # Кнопка тренера только для тренеров
+        if user_role == 'trainer':
+            builder.row(
+                KeyboardButton(text="💰 Моя скидка"),
+                KeyboardButton(text="👨‍🏫 Тренер"),
+                width=2
+            )
+        else:
+            builder.row(
+                KeyboardButton(text="💰 Моя скидка"),
+                KeyboardButton(text="👨‍🏫 Мой тренер"),  # <-- ДОБАВИТЬ ДЛЯ ОБЫЧНЫХ ПОЛЬЗОВАТЕЛЕЙ
+                width=2
+            )
+
         builder.row(
-            KeyboardButton(text="💰 Моя скидка"),
             KeyboardButton(text="❓ Помощь"),
-            width=2
-        )
-        builder.row(
             KeyboardButton(text="🔐 Документы"),
-            width=1
+            width=2
         )
 
         return builder.as_markup(resize_keyboard=True)
@@ -362,4 +372,15 @@ class Navigation:
             width=2
         )
 
+        return builder.as_markup()
+
+    @staticmethod
+    def get_trainer_confirm_keyboard(client_id: int) -> InlineKeyboardMarkup:
+        """Клавиатура для подтверждения запроса клиента (для тренера)"""
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            InlineKeyboardButton(text="✅ Принять", callback_data=f"confirm_client_{client_id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_client_{client_id}"),
+            width=2
+        )
         return builder.as_markup()

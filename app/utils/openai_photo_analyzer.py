@@ -12,7 +12,7 @@ _client = None
 
 # Новая модель для Vision API
 VISION_MODEL = "gpt-4o"
-TEXT_MODEL = "gpt-4-turbo-preview"
+TEXT_MODEL = "gpt-4o-mini"
 
 
 def _get_api_key() -> Optional[str]:

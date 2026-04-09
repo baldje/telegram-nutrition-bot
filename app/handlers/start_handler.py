@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 import logging
@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from app.utils.states import OnboardingStates
 from app.utils.navigation import Navigation
-from app.database.crud import UserCRUD
+from app.database.crud import UserCRUD, TrainerCRUD
 
 logger = logging.getLogger(__name__)
 start_router = Router()
@@ -32,11 +32,11 @@ def get_goal_keyboard():
 
 @start_router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext, db=None):
-    """Главное меню с обработкой редиректов от Т-Банка и реферальных кодов"""
+    """Главное меню с обработкой редиректов от Т-Банка, реферальных кодов и приглашений тренера"""
     try:
         await state.clear()
 
-        # Проверяем параметры (редирект от Т-Банка или рефералка)
+        # Проверяем параметры (редирект от Т-Банка, рефералка или приглашение тренера)
         args = message.text.split()
 
         if len(args) > 1:
@@ -76,6 +76,15 @@ async def cmd_start(message: Message, state: FSMContext, db=None):
                 logger.info(f"✅ Извлечен реферальный код: {referral_code}")
                 await state.update_data(referral_code=referral_code)
 
+            elif param.startswith('trainer_'):
+                # Ссылка-приглашение от тренера
+                try:
+                    trainer_id = int(param.split('_')[1])
+                    await state.update_data(invite_trainer_id=trainer_id)
+                    logger.info(f"📨 Пользователь перешел по ссылке тренера {trainer_id}")
+                except:
+                    logger.warning(f"❌ Неверный формат trainer_ параметра: {param}")
+
         # Проверяем, есть ли пользователь в БД
         user = None
         if db:
@@ -89,12 +98,12 @@ async def cmd_start(message: Message, state: FSMContext, db=None):
                 reply_markup=Navigation.get_onboarding_start_keyboard()
             )
         else:
-            # Существующий пользователь
+            # Существующий пользователь — показываем меню в зависимости от роли
             await message.answer(
                 f"👋 *С возвращением!*\n\n"
                 f"Выбери раздел:",
                 parse_mode="HTML",
-                reply_markup=Navigation.get_main_menu()
+                reply_markup=Navigation.get_main_menu(user.role if user else 'user')
             )
 
         logger.info(f"Пользователь {message.from_user.id} запустил бота")
@@ -137,7 +146,7 @@ async def check_payment_by_order(message: Message, state: FSMContext, db, order_
                             f"📅 Действует до: {user.subscription_until.strftime('%d.%m.%Y')}\n\n"
                             "Теперь вам доступны все функции бота!",
                             parse_mode="HTML",
-                            reply_markup=Navigation.get_main_menu()
+                            reply_markup=Navigation.get_main_menu(user.role if user else 'user')
                         )
                         return
                 except Exception as e:
@@ -156,23 +165,45 @@ async def check_payment_by_order(message: Message, state: FSMContext, db, order_
 
 
 @start_router.message(F.text == "🔙 В главное меню")
-async def back_to_main(message: Message, state: FSMContext):
+async def back_to_main(message: Message, state: FSMContext, db=None):
     """Возврат в главное меню"""
     await state.clear()
+
+    # Получаем роль пользователя для правильного меню
+    user_role = 'user'
+    if db:
+        try:
+            user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
+            if user:
+                user_role = user.role
+        except:
+            pass
+
     await message.answer(
         "Главное меню:",
-        reply_markup=Navigation.get_main_menu()
+        reply_markup=Navigation.get_main_menu(user_role)
     )
 
 
 @start_router.message(F.text == "❌ Отменить действие")
-async def cancel_action(message: Message, state: FSMContext):
+async def cancel_action(message: Message, state: FSMContext, db=None):
     """Отмена текущего действия"""
     await state.clear()
+
+    # Получаем роль пользователя для правильного меню
+    user_role = 'user'
+    if db:
+        try:
+            user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
+            if user:
+                user_role = user.role
+        except:
+            pass
+
     await message.answer(
         "✅ Действие отменено.\n"
         "Выбери, что хочешь сделать:",
-        reply_markup=Navigation.get_main_menu()
+        reply_markup=Navigation.get_main_menu(user_role)
     )
 
 
@@ -225,11 +256,21 @@ async def bot_features(message: Message):
 
 
 @start_router.message(F.text == "❌ Не сейчас")
-async def not_now(message: Message):
+async def not_now(message: Message, db=None):
     """Пользователь не хочет начинать сейчас"""
+    # Получаем роль пользователя для правильного меню
+    user_role = 'user'
+    if db:
+        try:
+            user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
+            if user:
+                user_role = user.role
+        except:
+            pass
+
     await message.answer(
         "Хорошо! Если захочешь начать, просто напиши /start",
-        reply_markup=Navigation.get_main_menu()
+        reply_markup=Navigation.get_main_menu(user_role)
     )
 
 
@@ -248,23 +289,25 @@ async def nutrition_menu(message: Message):
 async def premium_menu(message: Message, db=None):
     """Меню премиум"""
     discount = 0
+    role_text = ""
 
-    # Получаем скидку пользователя
     if db:
         try:
             user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
             if user:
                 discount = user.discount_percent or 0
+                if user.role == 'trainer':
+                    role_text = "\n\n👨‍🏫 *Вы наставник!* У вас есть доступ к панели управления."
         except:
             pass
 
     await message.answer(
-        "💎 *Премиум подписка*\n\n"
-        "Получи доступ к:\n"
-        "• 📸 Анализу фото еды\n"
-        "• 📊 Расширенной статистике\n"
-        "• ♾️ Безлимитным запросам\n\n"
-        "Стоимость от 299 ₽/мес",
+        f"💎 *Премиум подписка*\n\n"
+        f"Получи доступ к:\n"
+        f"• 📸 Анализу фото еды\n"
+        f"• 📊 Расширенной статистике\n"
+        f"• ♾️ Безлимитным запросам{role_text}\n\n"
+        f"Стоимость от 299 ₽/мес",
         parse_mode="HTML",
         reply_markup=Navigation.get_premium_inline_menu(discount)
     )
@@ -310,45 +353,43 @@ async def support(message: Message):
     )
 
 
-# ⚠️ ЗАКОММЕНТИРОВАНО - теперь эти функции обрабатываются в photo_handler.py
-# @start_router.message(F.text == "📸 Анализ фото")
-# async def analyze_photo_button(message: Message, state: FSMContext):
-#     """Кнопка анализа фото"""
-#     from app.handlers.photo_handler import cmd_analyze
-#     await cmd_analyze(message, state)
-
-
-# @start_router.message(F.text == "📝 Описать еду")
-# async def describe_food_button(message: Message):
-#     """Кнопка описания еды"""
-#     await message.answer(
-#         "📝 *Опиши, что ты съел*\n\n"
-#         "Например:\n"
-#         "• 'Съел тарелку борща со сметаной'\n"
-#         "• 'Выпил стакан молока 3.2%'\n"
-#         "• 'Перекусил яблоком'\n\n"
-#         "Я оценю калорийность и БЖУ.",
-#         parse_mode="HTML",
-#         reply_markup=Navigation.get_cancel_keyboard()
-#     )
-
-
 @start_router.message(Command("cancel"))
-async def cmd_cancel(message: Message, state: FSMContext):
+async def cmd_cancel(message: Message, state: FSMContext, db=None):
     """Отмена текущего действия"""
     current_state = await state.get_state()
     if current_state:
         logger.info(f"🔄 Отмена состояния {current_state} для пользователя {message.from_user.id}")
         await state.clear()
+
+        # Получаем роль пользователя для правильного меню
+        user_role = 'user'
+        if db:
+            try:
+                user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
+                if user:
+                    user_role = user.role
+            except:
+                pass
+
         await message.answer(
             "❌ Действие отменено.\n"
             "Выбери, что хочешь сделать:",
-            reply_markup=Navigation.get_main_menu()
+            reply_markup=Navigation.get_main_menu(user_role)
         )
     else:
+        # Получаем роль пользователя для правильного меню
+        user_role = 'user'
+        if db:
+            try:
+                user = await UserCRUD.get_by_telegram_id(db.session, message.from_user.id)
+                if user:
+                    user_role = user.role
+            except:
+                pass
+
         await message.answer(
             "Нет активного действия для отмены.",
-            reply_markup=Navigation.get_main_menu()
+            reply_markup=Navigation.get_main_menu(user_role)
         )
 
 
@@ -401,7 +442,7 @@ async def cmd_status(message: Message, db=None):
 ❓ Хочешь оформить подписку? /subscribe
         """
 
-        await message.answer(response, parse_mode="HTML", reply_markup=Navigation.get_main_menu())
+        await message.answer(response, parse_mode="HTML", reply_markup=Navigation.get_main_menu(user.role))
 
     except Exception as e:
         logger.error(f"Ошибка в /status: {e}")
@@ -409,12 +450,23 @@ async def cmd_status(message: Message, db=None):
 
 
 @start_router.callback_query(F.data == "back_to_main")
-async def back_to_main_callback(callback: CallbackQuery, state: FSMContext):
+async def back_to_main_callback(callback: CallbackQuery, state: FSMContext, db=None):
     """Возврат в главное меню (из inline)"""
     await state.clear()
+
+    # Получаем роль пользователя для правильного меню
+    user_role = 'user'
+    if db:
+        try:
+            user = await UserCRUD.get_by_telegram_id(db.session, callback.from_user.id)
+            if user:
+                user_role = user.role
+        except:
+            pass
+
     await callback.message.delete()
     await callback.message.answer(
         "Главное меню:",
-        reply_markup=Navigation.get_main_menu()
+        reply_markup=Navigation.get_main_menu(user_role)
     )
     await callback.answer()

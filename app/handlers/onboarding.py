@@ -1,7 +1,7 @@
 # app/handlers/onboarding.py
 from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 import logging
 from datetime import datetime, timedelta
@@ -54,19 +54,10 @@ async def cmd_during_onboarding(message: Message, state: FSMContext):
             reply_markup=Navigation.get_main_menu()
         )
 
+
 # ---------- ШАГ 1: ЦЕЛЬ ----------
 @onboarding_router.message(StateFilter(OnboardingStates.waiting_goal))
 async def process_goal(message: Message, state: FSMContext):
-    # ТЕСТОВОЕ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЮ
-    await message.answer("✅ Функция process_goal вызвана! Сейчас обработаю твой выбор...")
-    # ЭКСТРЕННЫЙ ЛОГ
-    print("🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥")
-    print(f"🔥🔥🔥 process_goal ВЫЗВАН! Текст: {message.text}")
-    print("🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥")
-    import sys
-    sys.stdout.flush()
-    logger.error(f"🔥🔥🔥🔥🔥🔥🔥 process_goal ВЫЗВАН для пользователя {message.from_user.id} с текстом {message.text}")
-
     # Проверяем на команды
     if message.text.startswith('/'):
         logger.info(f"🚫 Игнорируем команду {message.text} в состоянии выбора цели")
@@ -74,9 +65,7 @@ async def process_goal(message: Message, state: FSMContext):
         await cmd_start(message, state)
         return
 
-    logger.info(f"🔥 process_goal ВЫЗВАНА!")
-    logger.info(f"📝 Текст: {message.text}")
-    logger.info(f"👤 User ID: {message.from_user.id}")
+    logger.info(f"📝 process_goal: {message.text} от пользователя {message.from_user.id}")
 
     goal = message.text.strip().lower()
     valid_goals = ['похудение', 'набор массы', 'поддержание', 'рельеф', 'здоровье']
@@ -93,8 +82,8 @@ async def process_goal(message: Message, state: FSMContext):
         )
         return
 
-    # Сохраняем цель
-    await update_user_data(message.from_user.id, goal=goal)
+    # Сохраняем цель (передаем state для обработки приглашения тренера)
+    await update_user_data(message.from_user.id, state=state, goal=goal)
     await state.update_data(goal=goal)
 
     # Отправляем следующий вопрос
@@ -106,7 +95,8 @@ async def process_goal(message: Message, state: FSMContext):
     # Меняем состояние
     await state.set_state(OnboardingStates.waiting_gender)
 
-async def update_user_data(telegram_id: int, **kwargs):
+
+async def update_user_data(telegram_id: int, state: FSMContext = None, **kwargs):
     """Обновить данные пользователя в БД"""
     async with AsyncSessionLocal() as session:
         try:
@@ -127,11 +117,47 @@ async def update_user_data(telegram_id: int, **kwargs):
                 )
                 logger.info(f"✅ Создан новый пользователь: {telegram_id}, ID: {user.id}")
 
+                # ===== ОБРАБОТКА ПРИГЛАШЕНИЯ ТРЕНЕРА (опционально) =====
+                if state:
+                    data = await state.get_data()
+                    invite_trainer_id = data.get('invite_trainer_id')
+
+                    if invite_trainer_id:
+                        from app.database.models import TrainerClient
+                        from sqlalchemy import select
+
+                        # Проверяем, существует ли тренер
+                        result = await session.execute(
+                            select(User).where(User.id == invite_trainer_id, User.role == 'trainer')
+                        )
+                        trainer = result.scalar_one_or_none()
+
+                        if trainer:
+                            # Проверяем, нет ли уже запроса
+                            existing = await session.execute(
+                                select(TrainerClient).where(
+                                    TrainerClient.trainer_id == trainer.id,
+                                    TrainerClient.client_id == user.id
+                                )
+                            )
+                            if not existing.scalar_one_or_none():
+                                # Создаем запрос на подключение (статус pending)
+                                new_request = TrainerClient(
+                                    trainer_id=trainer.id,
+                                    client_id=user.id,
+                                    status='pending'
+                                )
+                                session.add(new_request)
+                                await session.commit()
+                                logger.info(f"📨 Создан запрос от клиента {user.id} к тренеру {trainer.id}")
+                                # НЕ отправляем уведомление тренеру - он увидит в панели
+                # ===== КОНЕЦ ОБРАБОТКИ =====
+
             # 3. Обновляем данные пользователя
             logger.info(f"📝 Обновляем данные пользователя {telegram_id}: {kwargs}")
 
             # Фильтруем None значения
-            filtered_kwargs = {k: v for k, v in kwargs.items() if v is not None}
+            filtered_kwargs = {k: v for k, v in kwargs.items() if v is not None and k != 'state'}
 
             if filtered_kwargs:
                 user = await UserCRUD.update_onboarding(session, user, **filtered_kwargs)
@@ -194,8 +220,6 @@ async def split_and_send_messages(message: Message, text: str, parse_mode: str =
         await message.answer(chunk_with_indicator, parse_mode=parse_mode)
 
 
-
-
 # ---------- ШАГ 2: ПОЛ ----------
 @onboarding_router.message(StateFilter(OnboardingStates.waiting_gender))
 async def process_gender(message: Message, state: FSMContext):
@@ -246,7 +270,7 @@ async def process_age(message: Message, state: FSMContext):
         )
         return
 
-    logger.info(f"🔥 Получен возраст: {message.text}")
+    logger.info(f"📝 Получен возраст: {message.text}")
 
     if message.text.lower() == 'пропустить':
         age = None
@@ -488,8 +512,6 @@ async def process_training_current(message: Message, state: FSMContext):
 
 
 # ---------- ШАГ 10: ЖЕЛАНИЕ ТРЕНИРОВАТЬСЯ ----------
-# app/handlers/onboarding.py - функция process_training_wants
-
 @onboarding_router.message(StateFilter(OnboardingStates.waiting_training_wants))
 async def process_training_wants(message: Message, state: FSMContext):
     # Проверяем на команды
@@ -658,18 +680,3 @@ async def process_training_wants(message: Message, state: FSMContext):
     )
 
     await state.clear()
-
-#
-# # ---------- ДЛЯ ОТЛАДКИ ----------
-# @onboarding_router.message()
-# async def debug_handler(message: Message, state: FSMContext):
-#     current_state = await state.get_state()
-#     logger.info(f"🔍 DEBUG: Пользователь {message.from_user.id} отправил: '{message.text}', состояние: {current_state}")
-#
-#     # Если есть активное состояние, но оно не обработано - сообщим об этом
-#     if current_state:
-#         await message.answer(
-#             f"⚠️ Что-то пошло не так. Текущее состояние: {current_state}.\n"
-#             f"Напиши /start чтобы начать заново.",
-#             reply_markup=Navigation.get_main_menu()
-#         )

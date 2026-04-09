@@ -733,3 +733,111 @@ class NutritionCalculator:
             'tdee': int(tdee),
             'bmr': int(bmr)
         }
+
+class TrainerCRUD:
+    """CRUD операции для системы тренеров"""
+
+    @staticmethod
+    async def get_trainer_clients(session, trainer_id: int):
+        """Получить всех активных подопечных тренера"""
+        from app.database.models import TrainerClient
+        result = await session.execute(
+            select(User)
+            .join(TrainerClient, TrainerClient.client_id == User.id)
+            .where(TrainerClient.trainer_id == trainer_id)
+            .where(TrainerClient.status == 'active')
+        )
+        return result.scalars().all()
+
+    @staticmethod
+    async def get_client_trainers(session, client_id: int):
+        """Получить всех активных тренеров подопечного"""
+        from app.database.models import TrainerClient
+        result = await session.execute(
+            select(User)
+            .join(TrainerClient, TrainerClient.trainer_id == User.id)
+            .where(TrainerClient.client_id == client_id)
+            .where(TrainerClient.status == 'active')
+        )
+        return result.scalars().all()
+
+    @staticmethod
+    async def get_relation(session, trainer_id: int, client_id: int):
+        """Получить связь тренер-подопечный"""
+        from app.database.models import TrainerClient
+        result = await session.execute(
+            select(TrainerClient)
+            .where(TrainerClient.trainer_id == trainer_id)
+            .where(TrainerClient.client_id == client_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def create_request(session, trainer_id: int, client_id: int):
+        """
+        Создать заявку на связь или переиспользовать старую.
+        Возвращает tuple: (relation, action)
+        action: created | already_active | already_pending | reactivated
+        """
+        from app.database.models import TrainerClient
+
+        existing = await TrainerCRUD.get_relation(session, trainer_id, client_id)
+
+        if existing:
+            if existing.status == 'active':
+                return existing, 'already_active'
+
+            if existing.status == 'pending':
+                return existing, 'already_pending'
+
+            if existing.status == 'rejected':
+                existing.status = 'pending'
+                await session.commit()
+                await session.refresh(existing)
+                return existing, 'reactivated'
+
+        relation = TrainerClient(
+            trainer_id=trainer_id,
+            client_id=client_id,
+            status='pending'
+        )
+        session.add(relation)
+        await session.commit()
+        await session.refresh(relation)
+        return relation, 'created'
+
+    @staticmethod
+    async def accept_request(session, trainer_id: int, client_id: int):
+        """Подтвердить заявку"""
+        relation = await TrainerCRUD.get_relation(session, trainer_id, client_id)
+        if not relation:
+            return None
+
+        relation.status = 'active'
+        await session.commit()
+        await session.refresh(relation)
+        return relation
+
+    @staticmethod
+    async def reject_request(session, trainer_id: int, client_id: int):
+        """Отклонить заявку"""
+        relation = await TrainerCRUD.get_relation(session, trainer_id, client_id)
+        if not relation:
+            return None
+
+        relation.status = 'rejected'
+        await session.commit()
+        await session.refresh(relation)
+        return relation
+
+    @staticmethod
+    async def get_pending_requests_for_client(session, client_id: int):
+        """Все входящие заявки клиенту"""
+        from app.database.models import TrainerClient
+        result = await session.execute(
+            select(TrainerClient)
+            .where(TrainerClient.client_id == client_id)
+            .where(TrainerClient.status == 'pending')
+            .order_by(TrainerClient.assigned_at.desc())
+        )
+        return result.scalars().all()

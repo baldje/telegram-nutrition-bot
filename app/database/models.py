@@ -14,6 +14,8 @@ class User(Base):
     username = Column(String(255))
     full_name = Column(String(255))
 
+    role = Column(String(20), default='user')
+
     # Данные онбординга
     goal = Column(String(50))
     gender = Column(String(20))
@@ -193,3 +195,72 @@ class DailySummary(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", back_populates="daily_summaries")
+
+
+class UserRole(str, Enum):
+    """Роли пользователей"""
+    USER = "user"  # обычный пользователь
+    TRAINER = "trainer"  # тренер/наставник
+    ADMIN = "admin"  # администратор
+
+
+class TrainerClient(Base):
+    """Связь тренера и подопечного"""
+    __tablename__ = 'trainer_clients'
+
+    id = Column(Integer, primary_key=True)
+    trainer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    client_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+
+    # Статус связи
+    status = Column(String(20), default='active')  # active, pending, rejected
+
+    # Дата назначения
+    assigned_at = Column(DateTime, default=datetime.utcnow)
+
+    # Заметки тренера о подопечном
+    notes = Column(Text, nullable=True)
+
+    # Связи
+    trainer = relationship("User", foreign_keys=[trainer_id], backref="clients")
+    client = relationship("User", foreign_keys=[client_id], backref="trainers")
+
+
+class TrainerComment(Base):
+    """Комментарии тренера к записям дневника"""
+    __tablename__ = 'trainer_comments'
+
+    id = Column(Integer, primary_key=True)
+    trainer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    food_entry_id = Column(Integer, ForeignKey('food_diary.id'), nullable=False)
+
+    comment = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Связи
+    trainer = relationship("User", foreign_keys=[trainer_id])
+    food_entry = relationship("FoodDiary", backref="trainer_comments")
+
+
+class TrainerAdvice(Base):
+    """Рекомендации тренера на день"""
+    __tablename__ = 'trainer_advices'
+
+    id = Column(Integer, primary_key=True)
+    trainer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    client_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+
+    advice_date = Column(Date, nullable=False)
+    advice_text = Column(Text, nullable=False)
+
+    # Цели на день (опционально)
+    target_calories = Column(Integer, nullable=True)
+    target_protein = Column(Float, nullable=True)
+    target_fat = Column(Float, nullable=True)
+    target_carbs = Column(Float, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Связи
+    trainer = relationship("User", foreign_keys=[trainer_id])
+    client = relationship("User", foreign_keys=[client_id])

@@ -47,6 +47,8 @@ async def handle_food_photo(message: Message, state: FSMContext, db=None):
     try:
         # Получаем фото
         photo = message.photo[-1]
+        photo_file_id = photo.file_id
+
         file = await message.bot.get_file(photo.file_id)
         photo_bytes_io = await message.bot.download_file(file.file_path)
         photo_bytes = photo_bytes_io.getvalue()
@@ -67,7 +69,11 @@ async def handle_food_photo(message: Message, state: FSMContext, db=None):
             }
 
         # Сохраняем анализ
-        await state.update_data(analysis=analysis, description="Фото еды")
+        await state.update_data(
+            analysis=analysis,
+            description="Фото еды",
+            photo_file_id=photo_file_id  # <-- ДОБАВИТЬ ЭТО
+        )
 
         # Спрашиваем тип приема пищи
         await ask_meal_type(message, state, db)
@@ -325,13 +331,16 @@ async def process_meal_type(callback: CallbackQuery, state: FSMContext, db=None)
                     # Получаем значение калорий из анализа ДО сохранения
                     calories_value = analysis.get('estimated_calories', 0)
 
+                    photo_file_id = data.get('photo_file_id', None)
+
                     # Сохраняем запись
                     entry = await FoodDiaryCRUD.add_entry(
                         session=db.session,
                         user_id=user.id,
                         meal_type=meal_type,
                         description=description,
-                        analysis=analysis
+                        analysis=analysis,
+                        photo_file_id=photo_file_id
                     )
 
                     await callback.message.edit_text(

@@ -7,6 +7,8 @@ from .onboarding import onboarding_router
 from .photo_handler import photo_router
 from .main import main_router
 from .food_diary import router as food_diary_router
+from .trainer import router as trainer_router
+from .client_trainer import router as client_trainer_router
 
 __all__ = [
     'start_router',
@@ -16,5 +18,7 @@ __all__ = [
     'main_router',
     'legal_router',
     'referral_router',
-    'food_diary_router'
+    'food_diary_router',
+    'trainer_router',
+    'client_trainer_router'
 ]

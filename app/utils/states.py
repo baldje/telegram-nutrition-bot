@@ -1,5 +1,6 @@
 from aiogram.fsm.state import State, StatesGroup
 
+
 class OnboardingStates(StatesGroup):
     waiting_goal = State()
     waiting_gender = State()
@@ -12,6 +13,7 @@ class OnboardingStates(StatesGroup):
     waiting_training_current = State()
     waiting_training_wants = State()
 
+
 class NutritionStates(StatesGroup):
     """Состояния для анализа питания"""
     waiting_meal_type = State()  # Ожидание выбора типа приема пищи
@@ -19,10 +21,10 @@ class NutritionStates(StatesGroup):
     waiting_text = State()       # Ожидание текстового описания
     confirm_entry = State()      # Подтверждение записи
 
+
 class PaymentStates(StatesGroup):
     waiting_payment = State()
 
-# app/utils/states.py - добавьте в конец
 
 class FoodDiaryStates(StatesGroup):
     """Состояния для дневника питания"""
@@ -31,3 +33,12 @@ class FoodDiaryStates(StatesGroup):
     waiting_food_photo = State()
     confirm_entry = State()
     viewing_history = State()
+
+
+# ===== НОВЫЕ СОСТОЯНИЯ ДЛЯ ТРЕНЕРА =====
+class TrainerStates(StatesGroup):
+    """Состояния для тренера/наставника"""
+    waiting_client_id = State()      # ожидание ID подопечного
+    waiting_comment = State()        # ожидание текста комментария
+    waiting_advice = State()         # ожидание текста рекомендации
+    waiting_entry_id = State()       # ожидание ID записи для комментария

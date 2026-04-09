@@ -18,7 +18,9 @@ from app.handlers import (
     main_router,
     legal_router,
     referral_router,
-    food_diary_router  # добавлено
+    food_diary_router,
+    trainer_router,
+    client_trainer_router,
 )
 
 # ИМПОРТИРУЕМ MIDDLEWARE
@@ -83,9 +85,11 @@ async def main():
             ("referral", referral_router),     # 3. Реферальные
             ("payments", payments_router),     # 4. Платежи
             ("onboarding", onboarding_router), # 5. Онбординг
-            ("food_diary", food_diary_router), # 6. 👈 ДНЕВНИК ПИТАНИЯ (теперь ПЕРЕД photo)
-            ("photo", photo_router),           # 7. Фото (специфичный, но после дневника)
-            ("main", main_router)              # 8. Общий (последний)
+            ("food_diary", food_diary_router), # 6. Дневник питания
+            ("photo", photo_router),           # 7. Фото
+            ("trainer", trainer_router),       # 8. 👈 ТРЕНЕР (ДОБАВЛЕН)
+            ("client_trainer_router", client_trainer_router),
+            ("main", main_router),              # 9. Общий (последний)
         ]
 
         for name, router in routers:
